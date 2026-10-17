@@ -1,0 +1,14 @@
+# Coolify 部署用。不把 8080 綁到主機，由 Coolify 代理轉進容器內的 8080。
+# 本機開發繼續用 docker-compose.yaml。
+services:
+  web:
+    build: .
+    image: apple-pickup-watcher:local
+    restart: unless-stopped
+    expose:
+      - "8080"
+    volumes:
+      - apw-config:/home/apw/.config/apple-pickup-watcher
+
+volumes:
+  apw-config:

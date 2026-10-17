@@ -10,7 +10,7 @@
 
 桌面版的系统依赖以 [CI](../.github/workflows/ci.yml) 和 [Release 工作流](../.github/workflows/release.yml) 为准：macOS 需要 Xcode Command Line Tools；Windows 需要 Microsoft C++ 生成工具和 WebView2；Linux 需要 WebKitGTK、托盘和 ALSA 等开发库。Ubuntu 开发环境可使用 [scripts/codex-setup.sh](../scripts/codex-setup.sh)。
 
-CLI 单独构建不启用通知 feature，不需要桌面或音频依赖。仓库根目录的 `Dockerfile` 与 `docker-compose.yaml` 构建网页版 `apw-web` 并在 8080 端口提供同一套界面；桌面版不进镜像。
+CLI 单独构建不启用通知 feature，不需要桌面或音频依赖。仓库根目录的 `Dockerfile` 与 `docker-compose.yaml` 构建网页版 `apw-web` 并在 8080 端口提供同一套界面；桌面版不进镜像。Coolify 改用 `docker-compose.coolify.yaml`，只暴露容器内的 8080，不占用主机端口。
 
 ## 开发与检查
 
