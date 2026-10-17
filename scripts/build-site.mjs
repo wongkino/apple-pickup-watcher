@@ -183,7 +183,7 @@ await writeFile(new URL("llms.txt", output), `# Apple Pickup Watcher
 - Platforms: macOS (Apple Silicon and Intel), Windows x64 and Linux x86_64.
 - Alerts: desktop notification, sound and optional Bark push. The app must stay running; the computer must stay awake and online.
 - Unknown or failed queries are not out-of-stock results. HTTP 541 alone does not establish its cause or inventory status.
-- Default polling interval: 30 seconds (minimum 5). Region support does not guarantee successful queries.
+- Default polling interval: 120 seconds (minimum 5). Region support does not guarantee successful queries.
 - Stock states: in_stock, out_of_stock, unknown (always with a reason: blocked, rate_limited, schema_drift, apple_error or transport) and not_yet_checked.
 - CLI: apw (Rust) prints JSON; apw watch streams NDJSON events; exit code 0 means the query succeeded, not that stock was found. A skill in skills/apple-pickup-watcher wraps it for Codex-style agents. The CLI sends no notifications and places no orders.
 - The app can open a shopping bag, but users add items, select pickup stores, check out and pay manually on Apple's website. No reservation or purchase guarantee.

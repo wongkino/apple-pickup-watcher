@@ -474,7 +474,7 @@ async fn query_nearby<F: Fetcher>(
                 outcome.uncovered = true;
                 if let Some(report) = outcome.trouble.as_mut() {
                     report.reason = format!(
-                        "{}（按地点「{location}」合并查询失败：{err}）",
+                        "{}（按地點「{location}」合併查詢失敗：{err}）",
                         report.reason
                     );
                 }
@@ -507,15 +507,15 @@ async fn query_nearby<F: Fetcher>(
 fn trouble_for(err: &ApiError, label: &str) -> Option<TroubleReport> {
     match err {
         ApiError::Blocked(_) => Some(TroubleReport {
-            reason: format!("{label} 查询失败：{err}"),
+            reason: format!("{label} 查詢失敗：{err}"),
             advice: Some(TroubleAdvice::TryAnotherNetwork),
         }),
         ApiError::SchemaDrift { .. } => Some(TroubleReport {
-            reason: format!("{label} 查询失败：{err}"),
+            reason: format!("{label} 查詢失敗：{err}"),
             advice: Some(TroubleAdvice::WaitForUpdate),
         }),
         ApiError::Apple(_) => Some(TroubleReport {
-            reason: format!("{label} 查询失败：{err}"),
+            reason: format!("{label} 查詢失敗：{err}"),
             advice: None,
         }),
         ApiError::RateLimited(_) | ApiError::Transport(_) => None,

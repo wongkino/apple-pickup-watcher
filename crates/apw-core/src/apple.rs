@@ -29,23 +29,23 @@ pub enum ApiError {
     /// （中国大陆站与美国站响应完全一致，且同一时刻 apple.com.cn 首页正常返回
     /// 200，可排除 IP 封禁）。上游把这个错误当成「无货」处理，于是所有用户看到
     /// 的都是一屏永远不会变的「无货」。
-    #[error("请求被 Apple 拦截：{0}")]
+    #[error("請求被 Apple 攔截：{0}")]
     Blocked(String),
 
     /// 触发了频率限制，应当退避后重试。
-    #[error("请求过于频繁被限流：{0}")]
+    #[error("請求過於頻繁被限流：{0}")]
     RateLimited(String),
 
     /// 响应能解析成 JSON，但结构与预期不符，通常意味着 Apple 又改了接口。
-    #[error("接口返回结构与预期不符：字段 {field} 的取值为 {raw:?}")]
+    #[error("介面回傳結構與預期不符：欄位 {field} 的取值為 {raw:?}")]
     SchemaDrift { field: String, raw: String },
 
     /// Apple 明确返回了一条业务错误信息。
-    #[error("Apple 返回错误：{0}")]
+    #[error("Apple 傳回錯誤：{0}")]
     Apple(String),
 
     /// 网络层面的失败。
-    #[error("网络请求失败：{0}")]
+    #[error("網路請求失敗：{0}")]
     Transport(String),
 }
 
@@ -1934,7 +1934,7 @@ fn store_list(resp: &PickupResponse) -> Result<&[PickupStore], ApiError> {
     // 应先核对官网和型号目录。
     if stores.is_empty() {
         return Err(ApiError::Apple(
-            "Apple 没有返回任何门店；所选型号可能已停售、尚未开售或当前无法购买".into(),
+            "Apple 沒有傳回任何門市；所選型號可能已停售、尚未開售或目前無法購買".into(),
         ));
     }
     Ok(stores)

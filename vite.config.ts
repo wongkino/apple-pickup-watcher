@@ -20,6 +20,10 @@ export default defineConfig(async () => ({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
+    proxy: {
+      "/api": "http://127.0.0.1:8080",
+      "/alert.mp3": "http://127.0.0.1:8080",
+    },
     watch: {
       // Rust 侧的改动由 cargo 自己监听，让 Vite 也去盯只会白白重启。
       ignored: ["**/src-tauri/**", "**/crates/**", "**/target/**"],

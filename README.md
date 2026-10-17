@@ -73,6 +73,14 @@ cargo install --path crates/apw-cli --locked   # 安装到 ~/.cargo/bin
 
 只需要 stable Rust，不需要 Node、桌面环境或音频设备。预编译包可在 [CLI 构建记录](https://github.com/ENCHIGO/apple-pickup-watcher/actions/workflows/cli.yml) 的成功运行里下载（Artifacts，需登录 GitHub），包内含 skill 和文档。
 
+不想装桌面环境时，可以用 Docker 打开同一套网页界面（浏览器播放提示音、弹出通知；Bark / 飞书仍由服务端发送）：
+
+```bash
+docker compose up -d --build
+```
+
+浏览器打开 <http://localhost:8080>。细节见 [CLI 文档](docs/cli.md#docker)。
+
 ### Agent skill
 
 装好 Node.js LTS 后，用 [Skills CLI](https://github.com/vercel-labs/skills) 一条命令装进 Codex：
@@ -90,7 +98,7 @@ Claude Code 把 `codex` 换成 `claude-code`，去掉 `--global` 则装到当前
 ### 桌面版三步
 
 1. **添加目标**：选地区 → 品类 → 门店 → 型号，点「添加」。门店可以一次勾选多家，每家各加一条。iPhone 按机型、容量、颜色逐步选择，三级都可以多选，勾选组合里目录中存在的型号会一次全部加入。可以加多条，不同品类、不同门店混着加。
-2. **开始监控**：点「开始」，保持应用运行、电脑联网且不休眠；关窗会收进托盘继续跑。默认每 30 秒查一轮，下限 5 秒。
+2. **开始监控**：点「开始」，保持应用运行、电脑联网且不休眠；关窗会收进托盘继续跑。默认每 120 秒查一轮，下限 5 秒。
 3. **收到提醒去官网买**：确认有货时弹系统通知、播提示音、发 Bark 或飞书推送，可按设置打开购物袋。添加商品、选择取货门店、结账和付款由你在 Apple 官网完成。
 
 持续有货不会每轮重复提醒，离开有货状态后再次有货才重新提醒。看到「监控当前不可信」时，列表里的「无货」不能当准信，先按提示排查原因。
@@ -153,11 +161,11 @@ apw watch    --targets targets.json --until-in-stock --timeout 300          # �
 
 ### 怎么在手机上收到提醒？
 
-在 iPhone 上装 [Bark](https://github.com/Finb/Bark)，把它给你的推送地址填进设置里的「推送地址」，点「测试提醒」确认整条链路通畅。安卓手机或想在飞书群里收，就给群添加一个自定义机器人，安全设置选关键词「有货」，把 webhook 地址也填进「推送地址」，步骤见[桌面版指南](docs/desktop.md#飞书群机器人推送)。程序会自己认出是 Bark 还是飞书；要推到几台手机或几个群，点「添加推送地址」一行填一个。推送失败不会改变库存判定。
+推送走 [Apprise](https://github.com/caronc/apprise)。在设置的「推送地址」里一行填一个 Apprise 地址，例如 `barks://api.day.app/设备密钥`、`feishu://机器人密钥`，点「测试提醒」确认通畅。要推到几台手机或几个群，点「添加推送地址」。网页版镜像里已经带了 `apprise` 命令；桌面版需要本机能运行这个命令。旧版本保存的 Bark、飞书地址会在读取时改写成对应的 Apprise 地址。推送失败不会改变库存判定。详见[桌面版指南](docs/desktop.md#推送地址)。
 
-### 查询间隔为什么默认 30 秒？
+### 查询间隔为什么默认 120 秒？
 
-门店库存不会在几秒内反复横跳，30 秒足够应付发售抢购。下限 5 秒；填了更小的值会退回 30 秒。这个值是下限不是保证：Apple 按出口 IP 限制查询次数，程序会按预算把实际间隔拉长（每个城市每轮一次请求，稳态大约每分钟一次），监控列表上方会显示下一轮的时间。请不要用它做批量抢购牟利，那只会让这条路对所有人都失效。
+门店库存不会在几秒内反复横跳，120 秒足够应付发售抢购。下限 5 秒；填了更小的值会退回 120 秒。这个值是下限不是保证：Apple 按出口 IP 限制查询次数，程序会按预算把实际间隔拉长（每个城市每轮一次请求，稳态大约每分钟一次），监控列表上方会显示下一轮的时间。请不要用它做批量抢购牟利，那只会让这条路对所有人都失效。
 
 更多：[桌面版指南](docs/desktop.md) · [CLI 文档](docs/cli.md) · [开发与维护](docs/development.md)
 
@@ -165,7 +173,7 @@ apw watch    --targets targets.json --until-in-stock --timeout 300          # �
 
 | 文档 | 内容 |
 | --- | --- |
-| [桌面版指南](docs/desktop.md) | 安装、监控与提醒规则、型号目录、Bark 与飞书推送、配置文件、常见问题 |
+| [桌面版指南](docs/desktop.md) | 安装、监控与提醒规则、型号目录、Apprise 推送、配置文件、常见问题 |
 | [CLI 与 agent skill](docs/cli.md) | 构建安装、命令、JSON / NDJSON 格式、批量目标、退出码 |
 | [开发与维护](docs/development.md) | 工具链、检查命令、代码结构、真实接口契约测试、发布流程 |
 | [站点维护](docs/discoverability.md) | 项目主页的构建、部署与搜索收录约定 |

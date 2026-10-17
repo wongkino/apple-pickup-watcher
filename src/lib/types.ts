@@ -83,8 +83,10 @@ export interface Settings {
   targets: Target[];
   intervalSeconds: number;
   barkUrl: string;
-  /** 飞书群自定义机器人 webhook；为空表示不启用。多个用分号分隔。 */
+  /** 旧版飞书 webhook。新配置写在 `appriseUrls`，这个字段读旧文件时才有内容。 */
   feishuWebhook: string;
+  /** Apprise 推送地址，多个用分号分隔。为空表示不推送。 */
+  appriseUrls: string;
   soundEnabled: boolean;
   openBagOnHit: boolean;
   /** 代理地址列表；每个代理是一条额外的出口线路，被拦时切换。可为空。 */
@@ -137,9 +139,9 @@ export function describeAdvice(advice: TroubleAdvice): string {
     case "try_another_network":
       // 先说动作，再说原因，而且短：界面上这句话是在一屏告警里被扫到的，
       // 不是被读完的。
-      return "换成手机热点或另一条网络，通常立刻恢复。这是 Apple 在拦这条网络的请求，同一时刻浏览器多半照常。";
+      return "改用手機熱點或另一條網路，通常立刻恢復。這是 Apple 在攔這條網路的請求，同一時間瀏覽器多半仍然正常。";
     case "wait_for_update":
-      return "需要等程序更新，改设置或换网络都解决不了。";
+      return "需要等程式更新，改設定或換網路都解決不了。";
     default:
       return assertNever(advice);
   }
@@ -147,7 +149,7 @@ export function describeAdvice(advice: TroubleAdvice): string {
 
 /** 走到这里说明有分支没处理。放在 `default` 里，漏掉的分支会变成编译错误。 */
 export function assertNever(x: never): never {
-  throw new Error(`未处理的分支：${JSON.stringify(x)}`);
+  throw new Error(`未處理的分支：${JSON.stringify(x)}`);
 }
 
 /** 界面上用于区分的四种展示状态。 */
@@ -167,9 +169,9 @@ export function describeAvailability(a: Availability): {
 } {
   switch (a.kind) {
     case "in_stock":
-      return { label: "有货", tone: "inStock", detail: null };
+      return { label: "有貨", tone: "inStock", detail: null };
     case "out_of_stock":
-      return { label: "无货", tone: "outOfStock", detail: null };
+      return { label: "無貨", tone: "outOfStock", detail: null };
     case "unknown":
       return describeUnknown(a);
     default:
@@ -184,29 +186,29 @@ function describeUnknown(a: { kind: "unknown" } & UnknownReason): {
 } {
   switch (a.reason) {
     case "not_yet_checked":
-      return { label: "待查询", tone: "pending", detail: "尚未轮到这一项" };
+      return { label: "待查詢", tone: "pending", detail: "尚未輪到這一項" };
     case "blocked":
       return {
         label: "未知",
         tone: "unknown",
-        detail: `请求被 Apple 拦截：${a.detail}`,
+        detail: `請求被 Apple 攔截：${a.detail}`,
       };
     case "rate_limited":
       return {
         label: "未知",
         tone: "unknown",
-        detail: "请求过于频繁被限流，正在退避",
+        detail: "請求過於頻繁被限流，正在退避",
       };
     case "schema_drift":
       return {
         label: "未知",
         tone: "unknown",
-        detail: `接口返回结构与预期不符：${a.field} = ${a.raw}`,
+        detail: `介面回傳結構與預期不符：${a.field} = ${a.raw}`,
       };
     case "apple_error":
-      return { label: "未知", tone: "unknown", detail: `Apple 返回错误：${a.message}` };
+      return { label: "未知", tone: "unknown", detail: `Apple 傳回錯誤：${a.message}` };
     case "transport":
-      return { label: "未知", tone: "unknown", detail: `网络请求失败：${a.detail}` };
+      return { label: "未知", tone: "unknown", detail: `網路請求失敗：${a.detail}` };
     default:
       return assertNever(a);
   }

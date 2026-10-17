@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use apw_core::notify::{Bark, Feishu, Multi, Notification, Notifier, NotifyError, Sound};
+use apw_core::notify::{Apprise, Bark, Feishu, Multi, Notification, Notifier, NotifyError, Sound};
 
 // ---------------------------------------------------------------------------
 // 极简 HTTP 测试服务端
@@ -707,4 +707,79 @@ async fn 地址协议不对时只复述协议和主机() {
         feishu.to_string().contains("ftp://open.feishu.cn/…"),
         "{feishu}"
     );
+}
+
+#[cfg(unix)]
+fn 写可执行脚本(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, body).expect("写脚本失败");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&path).expect("读权限失败").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).expect("改权限失败");
+    }
+    path
+}
+
+#[tokio::test]
+async fn 找不到apprise命令时失败且不含地址里的密钥() {
+    let err = Apprise::new("feishu://SECRET-HOOK-TOKEN")
+        .with_program("apprise-not-installed")
+        .notify(&Notification::new("有货了", "正文"))
+        .await
+        .expect_err("不该成功");
+    let text = err.to_string();
+    assert!(matches!(err, NotifyError::Config { .. }), "{err}");
+    assert!(text.contains("未找到"), "{text}");
+    assert_no_secret(&err, "SECRET-HOOK-TOKEN");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn apprise把标题正文和地址交给命令且失败时隐去密钥() {
+    let dir = std::env::temp_dir().join(format!(
+        "apw-apprise-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("时钟")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).expect("建临时目录失败");
+    let args_file = dir.join("args");
+    let ok = 写可执行脚本(
+        &dir,
+        "apprise-ok",
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n",
+            args_file.display()
+        ),
+    );
+    Apprise::new("barks://api.day.app/SECRET-DEVICE-KEY")
+        .with_program(ok)
+        .notify(&Notification::new("有货了", "上海 有货").with_url("https://www.apple.com/bag"))
+        .await
+        .expect("假命令应当成功");
+    let recorded = std::fs::read_to_string(&args_file).expect("读参数失败");
+    assert!(recorded.contains("--title"), "{recorded}");
+    assert!(recorded.contains("有货了"), "{recorded}");
+    assert!(recorded.contains("上海 有货"), "{recorded}");
+    assert!(recorded.contains("https://www.apple.com/bag"), "{recorded}");
+    assert!(
+        recorded.contains("barks://api.day.app/SECRET-DEVICE-KEY"),
+        "{recorded}"
+    );
+
+    let bad = 写可执行脚本(&dir, "apprise-bad", "#!/bin/sh\necho \"$5\" >&2\nexit 1\n");
+    let err = Apprise::new("feishu://SECRET-HOOK-TOKEN")
+        .with_program(bad)
+        .notify(&Notification::new("有货了", "正文"))
+        .await
+        .expect_err("退出码非零必须失败");
+    assert!(matches!(err, NotifyError::Transport { .. }), "{err}");
+    assert_no_secret(&err, "SECRET-HOOK-TOKEN");
+    assert!(err.to_string().contains("feishu://…"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

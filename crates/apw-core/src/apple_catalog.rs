@@ -608,7 +608,7 @@ pub fn extract_product_selection_data(page: &[u8]) -> Result<&[u8], CatalogError
 fn selection_value_at(search: &[u8], at: usize, offset: usize) -> Result<&[u8], CatalogError> {
     let not_an_identifier = || CatalogError::PageSchema {
         detail: format!(
-            "偏移 {} 处的 {SELECTION_KEY_STR} 只是更长标识符的一部分",
+            "偏移 {} 處的 {SELECTION_KEY_STR} 只是更長識別碼的一部分",
             offset + at
         ),
     };

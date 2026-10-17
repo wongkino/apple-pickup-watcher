@@ -1,0 +1,26 @@
+[package]
+name = "apw-web"
+description = "Browser UI for Apple Retail pickup availability"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "apw-web"
+path = "src/main.rs"
+
+[dependencies]
+apw-core = { path = "../apw-core", default-features = false, features = ["chrome-tls", "notifications"] }
+axum = "0.8"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+tower-http = { version = "0.6", features = ["fs"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

@@ -31,8 +31,8 @@ use crate::model::{REGIONS, Target, region_by_locale};
 ///
 /// 上游写死 500 毫秒一轮，即每个门店每秒两次请求。这个频率对一个公开的商品
 /// 查询接口来说过高，是触发风控的直接原因，也是上游 issue 里 503 / 541 反复
-/// 出现的背景。30 秒足够应付抢购，同时不会把自己送进黑名单。
-pub const DEFAULT_INTERVAL_SECONDS: u64 = 30;
+/// 出现的背景。120 秒足够应付抢购，同时不会把自己送进黑名单。
+pub const DEFAULT_INTERVAL_SECONDS: u64 = 120;
 
 /// 允许设置的间隔下限（秒）。保留手动调快的余地，但不允许低到必然触发风控。
 pub const MIN_INTERVAL_SECONDS: u64 = 5;
@@ -72,11 +72,11 @@ const LEGACY_SETTINGS_FILE: &str = "settings.json";
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     /// 系统没有给出用户配置目录的位置。
-    #[error("定位用户配置目录失败：系统未提供配置目录位置")]
+    #[error("找不到使用者設定目錄：系統未提供設定目錄位置")]
     NoConfigDir,
 
     /// 文件系统操作失败。
-    #[error("{action} {} 失败：{source}", .path.display())]
+    #[error("{action} {} 失敗：{source}", .path.display())]
     Io {
         /// 正在做的事，用于拼出一句人话，如「打开设置文件」。
         action: &'static str,
@@ -88,11 +88,11 @@ pub enum ConfigError {
     /// 设置文件超过 [`MAX_SETTINGS_BYTES`]。
     ///
     /// 单独一个变体，好让调用方能用 `matches!` 把它和「JSON 坏了」区分开。
-    #[error("设置文件 {} 超过 {limit} 字节上限", .path.display())]
+    #[error("設定檔 {} 超過 {limit} 位元組上限", .path.display())]
     TooLarge { path: PathBuf, limit: usize },
 
     /// 文件读到了，但内容不是一份能解析的设置。
-    #[error("解析设置文件 {} 失败：{source}", .path.display())]
+    #[error("解析設定檔 {} 失敗：{source}", .path.display())]
     Malformed {
         path: PathBuf,
         #[source]
@@ -100,7 +100,7 @@ pub enum ConfigError {
     },
 
     /// 把设置序列化成 JSON 失败。
-    #[error("序列化设置失败：{source}")]
+    #[error("序列化設定失敗：{source}")]
     Encode {
         #[source]
         source: serde_json::Error,
@@ -134,17 +134,17 @@ pub struct Settings {
     pub targets: Vec<Target>,
     /// 每轮查询之间的间隔秒数。
     pub interval_seconds: u64,
-    /// Bark 推送地址，为空表示不启用。多个地址在文件里用分号连成一个字符串，
-    /// 见 [`Settings::bark_urls`]；字段仍是一个字符串，旧配置原样可读。
-    ///
-    /// 界面上 Bark 和飞书是同一个「推送地址」列表，用户不用自己选渠道：
-    /// 读写都走 [`Settings::push_urls`] / [`Settings::set_push_urls`]，
-    /// 每个地址归哪个渠道由 [`push_kind`] 按长相判断，这两个字段只是存法。
+    /// 旧版 Bark 推送地址。新配置不再往这里写：规范化时改写成 Apprise 地址，
+    /// 放进 [`Settings::apprise_urls`]，然后清空，避免同一条提醒发两次。
+    /// 字段留着，是为了旧的 `settings.v2.json` 还能原样读出来。
     pub bark_url: String,
-    /// 飞书群自定义机器人的 webhook 地址，为空表示不启用；存法同
-    /// [`Settings::bark_url`]。创建机器人时安全设置选「自定义关键词」并填
-    /// 「有货」即可，提醒标题「有货了」天然命中。
+    /// 旧版飞书群机器人 webhook，处理方式同 [`Settings::bark_url`]。
     pub feishu_webhook: String,
+    /// Apprise 推送地址，为空表示不推送。多个地址用分号连成一个字符串。
+    ///
+    /// 界面上的「推送地址」只认这一栏。地址形如 `barks://api.day.app/设备密钥`、
+    /// `feishu://机器人密钥`、`discord://…`，由本机的 `apprise` 命令发出。
+    pub apprise_urls: String,
     /// 有货时是否播放提示音。
     pub sound_enabled: bool,
     /// 有货时是否自动打开购物袋页面。
@@ -170,6 +170,7 @@ impl Default for Settings {
             interval_seconds: DEFAULT_INTERVAL_SECONDS,
             bark_url: String::new(),
             feishu_webhook: String::new(),
+            apprise_urls: String::new(),
             sound_enabled: true,
             open_bag_on_hit: true,
             proxies: Vec::new(),
@@ -189,16 +190,14 @@ impl Settings {
         }
 
         // 注意是「小于下限就回到默认值」，不是「夹到下限」。手抖填了 1 秒的人
-        // 想要的是快，但 5 秒同样会被风控盯上；退回 30 秒才是安全的那一侧。
+        // 想要的是快，但 5 秒同样会被风控盯上；退回 120 秒才是安全的那一侧。
         if self.interval_seconds < MIN_INTERVAL_SECONDS {
             self.interval_seconds = DEFAULT_INTERVAL_SECONDS;
         }
 
-        // 推送地址收敛成「分号分隔、无空项、无重复」的规范写法，读回来和
-        // 界面上显示的一致；单个地址前后有空格的老配置也顺手修好。
-        //
-        // 同时按地址长相重新归一次渠道：支持飞书之前，只有 Bark 一栏可填，
-        // 有人把飞书地址填进了 Bark；升级后它会自己挪到飞书，开始正常推送。
+        // 推送地址收敛成「分号分隔、无空项、无重复」的规范写法。旧文件里的
+        // Bark / 飞书地址在 [`Settings::push_urls`] 里改写成 Apprise，再写回
+        // `apprise_urls` 并清空旧栏，这样下次保存不会把同一条提醒发两遍。
         let all = self.push_urls();
         self.set_push_urls(&all);
 
@@ -239,66 +238,103 @@ impl Settings {
         Duration::from_secs(self.interval_seconds)
     }
 
-    /// 配置的全部 Bark 推送地址，空表示未启用。
+    /// 配置里尚未迁移的 Bark 地址。发送和界面都走 [`Settings::push_urls`]。
     pub fn bark_urls(&self) -> Vec<String> {
         split_bark_urls(&self.bark_url)
     }
 
-    /// 全部推送地址：Bark 在前、飞书在后，各自保持填写顺序，去掉重复。
+    /// 全部 Apprise 推送地址，保持填写顺序，去掉重复。
+    ///
+    /// 旧文件里的 Bark、飞书地址会先改写成 Apprise 再并进来。已经写在
+    /// `apprise_urls` 里的地址原样保留，不再猜测渠道。
     pub fn push_urls(&self) -> Vec<String> {
-        let mut all = split_bark_urls(&self.bark_url);
-        for url in split_bark_urls(&self.feishu_webhook) {
-            if !all.contains(&url) {
+        let mut all = split_bark_urls(&self.apprise_urls);
+        for raw in split_bark_urls(&self.bark_url)
+            .into_iter()
+            .chain(split_bark_urls(&self.feishu_webhook))
+        {
+            let url = legacy_push_to_apprise(&raw);
+            if !url.is_empty() && !all.contains(&url) {
                 all.push(url);
             }
         }
         all
     }
 
-    /// 用一组推送地址整体替换现有的，逐个按 [`push_kind`] 归到 Bark 或飞书。
+    /// 用一组 Apprise 地址整体替换现有的，并清掉旧的 Bark / 飞书栏。
     ///
     /// 每一项还会再按分号、换行和空白拆开：用户把老版本里分号连着的一整串
-    /// 粘进一行，也能拆成几个地址各归各的渠道。
+    /// 粘进一行，也能拆成几个地址。
     pub fn set_push_urls(&mut self, urls: &[String]) {
-        let mut bark: Vec<String> = Vec::new();
-        let mut feishu: Vec<String> = Vec::new();
-        for url in split_bark_urls(&urls.join("\n")) {
-            match push_kind(&url) {
-                PushKind::Bark => bark.push(url),
-                PushKind::Feishu => feishu.push(url),
-            }
-        }
-        self.bark_url = bark.join(";");
-        self.feishu_webhook = feishu.join(";");
+        self.apprise_urls = split_bark_urls(&urls.join("\n")).join(";");
+        self.bark_url.clear();
+        self.feishu_webhook.clear();
     }
-}
-
-/// 推送地址属于哪个渠道。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PushKind {
-    Bark,
-    Feishu,
 }
 
 /// 飞书（含 Lark 国际版）群机器人 webhook 固定的路径前缀。
 const FEISHU_HOOK_PATH: &str = "/open-apis/bot/v2/hook/";
 
-/// 按地址长相判断推送渠道。
+/// 把升级前存下来的 Bark 或飞书地址改写成 [Apprise](https://github.com/caronc/apprise) 地址。
 ///
-/// 飞书群机器人的 webhook 路径是固定的，认得出来；其余一律当 Bark。自建的 Bark
-/// 服务器主机名五花八门，没法逐个认，只能兜底。判断放在 Rust 这一侧、界面不另
-/// 抄一份：抄一份，迟早会有一边先认了新渠道、另一边还按老规矩归类。
-pub fn push_kind(url: &str) -> PushKind {
-    let url = url.trim();
-    let feishu = match reqwest::Url::parse(url) {
-        Ok(parsed) => parsed.path().starts_with(FEISHU_HOOK_PATH),
-        // 漏写协议之类解析不了的地址按字面找：先归对渠道，发送时报的错才对得上号。
-        Err(_) => url.contains(FEISHU_HOOK_PATH),
+/// 已经是 `scheme://` 且不是 http(s) 的，视为用户填的 Apprise 地址，原样返回。
+/// `https://api.day.app/<密钥>` 变成 `barks://api.day.app/<密钥>`，飞书 webhook
+/// 末段的密钥变成 `feishu://<密钥>`（Lark 国际版主机用 `lark://`）。
+pub fn legacy_push_to_apprise(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let parsed = reqwest::Url::parse(trimmed)
+        .ok()
+        .or_else(|| reqwest::Url::parse(&format!("https://{trimmed}")).ok());
+    let Some(parsed) = parsed else {
+        return trimmed.to_string();
     };
-    if feishu {
-        PushKind::Feishu
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return trimmed.to_string();
+    }
+    if let Some(token) = feishu_hook_token(&parsed) {
+        let scheme = if parsed.host_str().unwrap_or("").contains("lark") {
+            "lark"
+        } else {
+            "feishu"
+        };
+        return format!("{scheme}://{token}");
+    }
+    let Some(host) = parsed.host_str() else {
+        return trimmed.to_string();
+    };
+    let device = parsed.path().trim_matches('/');
+    if device.is_empty() {
+        return trimmed.to_string();
+    }
+    let scheme = if parsed.scheme() == "https" {
+        "barks"
     } else {
-        PushKind::Bark
+        "bark"
+    };
+    let port = parsed
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    let mut out = format!("{scheme}://{host}{port}/{device}");
+    if let Some(query) = parsed.query()
+        && !query.is_empty()
+    {
+        out.push('?');
+        out.push_str(query);
+    }
+    out
+}
+
+fn feishu_hook_token(url: &reqwest::Url) -> Option<&str> {
+    let rest = url.path().strip_prefix(FEISHU_HOOK_PATH)?;
+    let token = rest.trim_matches('/');
+    if token.is_empty() || token.contains('/') {
+        None
+    } else {
+        Some(token)
     }
 }
 
@@ -388,12 +424,12 @@ impl SettingsStore {
             // 只有「确实没有这个文件」才等于「用户还没有配置」。
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Settings::default()),
             Err(source) => {
-                return Err(ConfigError::io("打开设置文件", &self.path, source));
+                return Err(ConfigError::io("開啟設定檔", &self.path, source));
             }
         };
 
         let data = read_capped(file, MAX_SETTINGS_BYTES)
-            .map_err(|source| ConfigError::io("读取设置文件", &self.path, source))?
+            .map_err(|source| ConfigError::io("讀取設定檔", &self.path, source))?
             .ok_or_else(|| ConfigError::TooLarge {
                 path: self.path.clone(),
                 limit: MAX_SETTINGS_BYTES,
@@ -436,12 +472,12 @@ impl SettingsStore {
         match fs::symlink_metadata(&self.path) {
             Ok(_) => {}
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(source) => return Err(ConfigError::io("检查设置文件", &self.path, source)),
+            Err(source) => return Err(ConfigError::io("檢查設定檔", &self.path, source)),
         }
 
         let backup = self.backup_path();
         fs::rename(&self.path, &backup)
-            .map_err(|source| ConfigError::io("留档损坏的设置文件", &self.path, source))?;
+            .map_err(|source| ConfigError::io("留存損壞的設定檔", &self.path, source))?;
         Ok(Some(backup))
     }
 
@@ -490,6 +526,88 @@ impl SettingsStore {
         let data = read_capped(file, MAX_SETTINGS_BYTES).ok()??;
         let legacy: LegacySettings = serde_json::from_slice(&data).ok()?;
         Some(legacy.into_settings())
+    }
+}
+
+/// 启动时读到的设置，以及必须让用户看见的降级说明。
+pub struct LaunchSettings {
+    pub settings: Settings,
+    pub store: Option<SettingsStore>,
+    /// 配置读不出来、或从旧版迁过来时的说明。空表示一切正常。
+    pub notices: Vec<String>,
+}
+
+/// 载入设置。读不出来时放弃写盘并留档原文件。
+///
+/// 这一条是刻意的：读不到旧配置**不等于**用户没有配置。若照常写盘，界面初始化
+/// 时的几次控件赋值就会把仅存的那份原子替换成一份空的默认配置，监控列表再也
+/// 找不回来。
+pub fn load_launch_settings() -> LaunchSettings {
+    let store = match SettingsStore::new() {
+        Ok(store) => store,
+        Err(err) => {
+            return LaunchSettings {
+                settings: Settings::default(),
+                store: None,
+                notices: vec![format!("配置目录不可用，本次运行的设置不会被保存：{err}")],
+            };
+        }
+    };
+
+    // 「新版配置文件还不存在」才是首次运行的判据。
+    //
+    // 不能用「目标列表为空」代替：用户删光目标后保存的是一份合法的空目标配置，
+    // 而旧版 settings.json 是刻意保留不删的（为了能回退），于是下次启动会把他
+    // 亲手删掉的目标连同 locale、Bark 地址一起原样倒回来。
+    let first_run = store.path().symlink_metadata().is_err();
+
+    match store.load() {
+        Ok(settings) => {
+            if first_run
+                && let Some(legacy) = store.import_legacy()
+                && !legacy.targets.is_empty()
+            {
+                let mut notices = vec![format!(
+                    "已从旧版设置迁移了 {} 条监控目标。",
+                    legacy.targets.len()
+                )];
+                // 立刻落盘。否则用户不改任何设置时新版文件一直不存在，
+                // 每次启动都要重迁一遍，用户删掉的目标也会一直复活。
+                if let Err(err) = store.save(&legacy) {
+                    notices.push(format!("迁移结果暂时没能保存：{err}"));
+                }
+                return LaunchSettings {
+                    settings: legacy,
+                    store: Some(store),
+                    notices,
+                };
+            }
+            LaunchSettings {
+                settings,
+                store: Some(store),
+                notices: Vec::new(),
+            }
+        }
+        Err(err) => {
+            let mut notices = Vec::new();
+            match store.preserve_corrupted() {
+                Ok(Some(path)) => {
+                    notices.push(format!("讀取設定失敗，原檔已備份到 {}", path.display()));
+                }
+                Ok(None) => {}
+                Err(backup_err) => {
+                    notices.push(format!("讀取設定失敗，且無法備份原檔：{backup_err}"));
+                }
+            }
+            notices.push(format!(
+                "讀取設定失敗，已退回預設設定，而且這次執行不會覆蓋磁碟上的設定：{err}"
+            ));
+            LaunchSettings {
+                settings: Settings::default(),
+                store: None,
+                notices,
+            }
+        }
     }
 }
 
@@ -569,12 +687,12 @@ fn create_temp_file(dir: &Path) -> Result<(TempFile, File), ConfigError> {
                 ));
             }
             Err(e) if e.kind() == ErrorKind::AlreadyExists => last = Some(e),
-            Err(e) => return Err(ConfigError::io("创建临时文件于", dir, e)),
+            Err(e) => return Err(ConfigError::io("建立暫存檔於", dir, e)),
         }
     }
     let source =
         last.unwrap_or_else(|| std::io::Error::new(ErrorKind::AlreadyExists, "临时文件名反复冲突"));
-    Err(ConfigError::io("创建临时文件于", dir, source))
+    Err(ConfigError::io("建立暫存檔於", dir, source))
 }
 
 /// 先写临时文件、刷盘、再改名。
@@ -584,19 +702,19 @@ fn create_temp_file(dir: &Path) -> Result<(TempFile, File), ConfigError> {
 /// 任何时刻去读，看到的要么是完整的旧内容，要么是完整的新内容。
 fn write_atomically(path: &Path, data: &[u8]) -> Result<(), ConfigError> {
     let dir = parent_dir(path);
-    fs::create_dir_all(dir).map_err(|e| ConfigError::io("创建配置目录", dir, e))?;
+    fs::create_dir_all(dir).map_err(|e| ConfigError::io("建立設定目錄", dir, e))?;
 
     let (mut guard, mut file) = create_temp_file(dir)?;
 
     file.write_all(data)
-        .map_err(|e| ConfigError::io("写入临时文件", &guard.path, e))?;
+        .map_err(|e| ConfigError::io("寫入暫存檔", &guard.path, e))?;
     // 必须在改名前刷盘。只改名不刷盘的话，掉电后可能出现「名字换好了、内容还在
     // 页缓存里没落地」，结果是一个大小为 0 的设置文件 —— 比半截 JSON 还糟。
     file.sync_all()
-        .map_err(|e| ConfigError::io("刷盘临时文件", &guard.path, e))?;
+        .map_err(|e| ConfigError::io("刷入暫存檔", &guard.path, e))?;
     drop(file);
 
-    fs::rename(&guard.path, path).map_err(|e| ConfigError::io("替换设置文件", path, e))?;
+    fs::rename(&guard.path, path).map_err(|e| ConfigError::io("取代設定檔", path, e))?;
     // 改名成功，临时文件已经不在原路径上了，撤掉守卫免得误删刚写好的设置。
     guard.disarm();
 
@@ -680,6 +798,7 @@ impl LegacySettings {
             bark_url: self.bark_url.unwrap_or(fallback.bark_url),
             // Go 版没有飞书推送，迁移过来的文件一律从空开始。
             feishu_webhook: String::new(),
+            apprise_urls: String::new(),
             sound_enabled: self.sound_enabled.unwrap_or(fallback.sound_enabled),
             open_bag_on_hit: self.open_bag_on_hit.unwrap_or(fallback.open_bag_on_hit),
             // Go 版没有代理设置，迁移过来的文件一律从空开始。

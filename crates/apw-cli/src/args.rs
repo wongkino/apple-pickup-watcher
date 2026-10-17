@@ -65,7 +65,7 @@ pub enum Command {
         #[arg(long, value_delimiter = ',')]
         proxy: Vec<String>,
         /// Base interval in seconds; engine jitter and failure backoff still apply.
-        #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(5..=86400))]
+        #[arg(long, default_value_t = 120, value_parser = clap::value_parser!(u64).range(5..=86400))]
         interval: u64,
         /// Exit successfully on the first confirmed in-stock event (any target).
         #[arg(long)]

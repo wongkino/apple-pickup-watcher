@@ -28,14 +28,7 @@ import {
   keepAvailable,
   productsForSelection,
 } from "@/lib/product-selection";
-import {
-  cleanPushRows,
-  PUSH_KIND_LABEL,
-  type PushKind,
-  pushSummary,
-  samePushUrls,
-  savedPushAddresses,
-} from "@/lib/push";
+import { cleanPushRows, pushSummary, samePushUrls, savedPushAddresses } from "@/lib/push";
 import {
   Table,
   TableBody,
@@ -180,11 +173,11 @@ function readSettingsOpen(): boolean {
 /** 收起时的一行摘要：设置折起来了，但它们是什么一眼还在。 */
 function settingsSummary(s: Settings): string {
   return [
-    `每 ${s.intervalSeconds} 秒查一轮`,
+    `每 ${s.intervalSeconds} 秒查一輪`,
     pushSummary(savedPushAddresses(s)),
-    (s.proxies ?? []).length > 0 ? `代理 ${s.proxies.length} 条` : "无代理",
-    s.soundEnabled ? "提示音开" : "提示音关",
-    s.openBagOnHit ? "有货时开购物袋" : "有货时不开购物袋",
+    (s.proxies ?? []).length > 0 ? `代理 ${s.proxies.length} 條` : "無代理",
+    s.soundEnabled ? "提示音開" : "提示音關",
+    s.openBagOnHit ? "有貨時開啟購物袋" : "有貨時不開啟購物袋",
   ].join(" · ");
 }
 
@@ -203,7 +196,7 @@ function RunState({ running }: { running: boolean }) {
           )}
         />
       </span>
-      {running ? "监听中" : "已暂停"}
+      {running ? "監聽中" : "已暫停"}
     </span>
   );
 }
@@ -242,7 +235,7 @@ function LogLine({ line }: { line: string }) {
   return (
     <div className="whitespace-pre-wrap">
       <span className="text-muted-foreground/60">{stamp}</span>{" "}
-      <span className={text.startsWith("有货") ? "text-in-stock font-medium" : "text-muted-foreground"}>
+      <span className={text.startsWith("有貨") ? "text-in-stock font-medium" : "text-muted-foreground"}>
         {text}
       </span>
     </div>
@@ -268,10 +261,10 @@ export default function App() {
   const [families, setFamilies] = useState<string[]>([]);
   const [capacities, setCapacities] = useState<string[]>([]);
   const [colors, setColors] = useState<string[]>([]);
-  // 推送地址：Bark 和飞书是同一个列表，一行一个。null 表示还没动过，跟着后端走；
-  // 动过之后以这份为准，保持用户填写的顺序，渠道标签按后端的归类显示。
+  // 推送地址是 Apprise 地址，一行一個。null 表示还没动过，跟着后端走；
+  // 动过之后以这份为准，保持用户填写的顺序。
   const [pushDraft, setPushDraft] = useState<string[] | null>(null);
-  // 代理地址和推送地址一样一行一个，草稿的规矩也相同，见 pushDraft。
+  // 代理地址和推送地址一样一行一個，草稿的规矩也相同，见 pushDraft。
   const [proxyDraft, setProxyDraft] = useState<string[] | null>(null);
   const [intervalDraft, setIntervalDraft] = useState<number | null>(null);
   // 设置改一次就放着不动，折起来把纵向空间还给表格；记住上次的选择。
@@ -287,8 +280,7 @@ export default function App() {
   }
 
   const savedPush = useMemo(() => savedPushAddresses(ui.settings), [ui.settings]);
-  const savedPushKind = new Map<string, PushKind>(savedPush.map((p) => [p.url, p.kind]));
-  const pushRows = pushDraft ?? savedPush.map((p) => p.url);
+  const pushRows = pushDraft ?? savedPush;
   // 一个地址都没有时留一个空行，直接粘贴就行，不用先点「添加」。
   const visiblePushRows = pushRows.length > 0 ? pushRows : [""];
   const lastPushRow = visiblePushRows[visiblePushRows.length - 1] ?? "";
@@ -303,7 +295,7 @@ export default function App() {
   function commitPushRows(rows: string[]) {
     const urls = cleanPushRows(rows);
     setPushDraft(urls);
-    if (!samePushUrls(urls, savedPush.map((p) => p.url))) {
+    if (!samePushUrls(urls, savedPush)) {
       void setPushUrls(urls);
     }
   }
@@ -445,18 +437,18 @@ export default function App() {
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Apple Pickup Watcher</h1>
             <p className="text-muted-foreground text-sm">
-              盯 Apple 直营店的到店取货库存，有货立刻提醒
+              盯著 Apple 直營店的到店取貨庫存，有貨立刻提醒
             </p>
           </div>
           <div className="flex items-center gap-4">
             <RunState running={ui.running} />
             {ui.running ? (
               <Button variant="secondary" onClick={() => void stopWatching()}>
-                <Pause /> 暂停
+                <Pause /> 暫停
               </Button>
             ) : (
               <Button onClick={() => void startWatching()} disabled={ui.rows.length === 0}>
-                <Play /> 开始
+                <Play /> 開始
               </Button>
             )}
           </div>
@@ -471,9 +463,9 @@ export default function App() {
           >
             <p className="text-destructive flex flex-wrap items-center gap-x-2 font-medium">
               <AlertTriangle className="size-4" />
-              监控当前不可信
+              監控目前不可信
               <span className="text-muted-foreground font-normal">
-                恢复之前，表格里的状态不代表门店的真实库存
+                恢復之前，表格裡的狀態不代表門市的真實庫存
               </span>
             </p>
             <p className="pl-6">{ui.trouble.reason}</p>
@@ -481,7 +473,7 @@ export default function App() {
               // 用户自己能做的那件事单独拎出来，而且要短：issue #3 里那位对着反复
               // 告警的窗口干等了三个小时，缺的不是解释，是一句「换条网络」。
               <p className="text-muted-foreground pl-6">
-                <span className="text-foreground font-medium">建议</span>{" "}
+                <span className="text-foreground font-medium">建議</span>{" "}
                 {describeAdvice(ui.trouble.advice)}
               </p>
             )}
@@ -495,26 +487,26 @@ export default function App() {
               <Download className="size-4" /> 有新版本 {ui.update.version}
             </p>
             <p className="text-muted-foreground">
-              当前 {ui.update.currentVersion}，安装后需重启应用生效。
+              目前 {ui.update.currentVersion}，安裝後需重新啟動才會生效。
             </p>
             <div className="ml-auto flex items-center gap-2">
               <Button size="sm" disabled={ui.installing} onClick={() => void installUpdate()}>
-                {ui.installing ? "正在下载…" : "下载并安装"}
+                {ui.installing ? "正在下載…" : "下載並安裝"}
               </Button>
               <Button size="sm" variant="ghost" onClick={dismissUpdate}>
-                <X /> 稍后
+                <X /> 稍後
               </Button>
             </div>
           </div>
         )}
 
         <Panel
-          title="添加监控目标"
-          hint="不同品类、不同门店可以混着加；门店和 iPhone 的机型、容量、颜色都可多选，组合一次全部加入"
+          title="新增監控目標"
+          hint="不同品類、不同門市可以混著加；門市和 iPhone 的機型、容量、顏色都可多選，組合一次全部加入"
         >
           <div className="flex flex-wrap items-end gap-3">
             <div className="grid gap-1.5">
-              <Label>地区</Label>
+              <Label>地區</Label>
               <Combobox
                 className="w-36"
                 options={ui.regions.map((r) => ({ value: r.locale, label: r.title }))}
@@ -525,14 +517,14 @@ export default function App() {
                   resetProductSelection();
                   void changeLocale(locale);
                 }}
-                placeholder="选择地区"
-                searchPlaceholder="搜索地区…"
-                emptyText="没有匹配的地区"
+                placeholder="選擇地區"
+                searchPlaceholder="搜尋地區…"
+                emptyText="沒有相符的地區"
               />
             </div>
 
             <div className="grid gap-1.5">
-              <Label>品类</Label>
+              <Label>品類</Label>
               <Combobox
                 className="w-36"
                 options={ui.categories.map((c) => ({ value: c.value, label: c.title }))}
@@ -543,24 +535,24 @@ export default function App() {
                   resetProductSelection();
                   setCategory(value as Category);
                 }}
-                placeholder="选择品类"
-                searchPlaceholder="搜索品类…"
-                emptyText="没有匹配的品类"
+                placeholder="選擇品類"
+                searchPlaceholder="搜尋品類…"
+                emptyText="沒有相符的品類"
                 disabled={ui.categories.length === 0}
               />
             </div>
 
             <div className="grid gap-1.5">
-              <Label>门店（可多选）</Label>
+              <Label>門市（可多選）</Label>
               <MultiCombobox
                 className="w-64"
                 options={storeOptions}
                 values={storeNumbers}
                 onChange={setStoreNumbers}
-                placeholder="选择自提门店"
-                searchPlaceholder="搜索门店…"
-                emptyText="没有匹配的门店"
-                countLabel={(n) => `已选 ${n} 家门店`}
+                placeholder="選擇取貨門市"
+                searchPlaceholder="搜尋門市…"
+                emptyText="沒有相符的門市"
+                countLabel={(n) => `已選 ${n} 家門市`}
                 disabled={storeOptions.length === 0}
               />
             </div>
@@ -570,68 +562,68 @@ export default function App() {
             {ui.category === "iphone" ? (
               <>
                 <div className="grid gap-1.5">
-                  <Label>机型（可多选）</Label>
+                  <Label>機型（可多選）</Label>
                   <MultiCombobox
                     className="w-48"
                     options={iphoneFamilyOptions}
                     values={families}
                     onChange={onFamiliesChange}
-                    placeholder="选择机型"
-                    searchPlaceholder="搜索机型…"
-                    emptyText="没有匹配的机型"
-                    countLabel={(n) => `已选 ${n} 款机型`}
+                    placeholder="選擇機型"
+                    searchPlaceholder="搜尋機型…"
+                    emptyText="沒有相符的機型"
+                    countLabel={(n) => `已選 ${n} 款機型`}
                     disabled={iphoneFamilyOptions.length === 0}
                   />
                 </div>
 
                 <div className="grid gap-1.5">
-                  <Label>容量（可多选）</Label>
+                  <Label>容量（可多選）</Label>
                   <MultiCombobox
                     className="w-36"
                     options={iphoneCapacityOptions}
                     values={capacities}
                     onChange={onCapacitiesChange}
-                    placeholder="选择容量"
-                    searchPlaceholder="搜索容量…"
-                    emptyText="没有匹配的容量"
-                    countLabel={(n) => `已选 ${n} 种容量`}
+                    placeholder="選擇容量"
+                    searchPlaceholder="搜尋容量…"
+                    emptyText="沒有相符的容量"
+                    countLabel={(n) => `已選 ${n} 種容量`}
                     disabled={families.length === 0 || iphoneCapacityOptions.length === 0}
                   />
                 </div>
 
                 <div className="grid gap-1.5">
-                  <Label>颜色（可多选）</Label>
+                  <Label>顏色（可多選）</Label>
                   <MultiCombobox
                     className="w-40"
                     options={iphoneColorOptions}
                     values={colors}
                     onChange={setColors}
-                    placeholder="选择颜色"
-                    searchPlaceholder="搜索颜色…"
-                    emptyText="没有匹配的颜色"
-                    countLabel={(n) => `已选 ${n} 种颜色`}
+                    placeholder="選擇顏色"
+                    searchPlaceholder="搜尋顏色…"
+                    emptyText="沒有相符的顏色"
+                    countLabel={(n) => `已選 ${n} 種顏色`}
                     disabled={capacities.length === 0 || iphoneColorOptions.length === 0}
                   />
                 </div>
               </>
             ) : (
               <div className="grid gap-1.5">
-                <Label>型号</Label>
+                <Label>型號</Label>
                 <Combobox
                   className="w-96"
                   options={productOptions}
                   value={partNumber}
                   onChange={setPartNumber}
-                  placeholder="选择型号"
-                  searchPlaceholder="搜索型号…"
-                  emptyText="没有匹配的型号"
+                  placeholder="選擇型號"
+                  searchPlaceholder="搜尋型號…"
+                  emptyText="沒有相符的型號"
                   disabled={productOptions.length === 0}
                 />
               </div>
             )}
 
             <Button variant="secondary" onClick={() => void onAdd()} disabled={!canAdd}>
-              <Plus /> 添加
+              <Plus /> 新增
             </Button>
             {selectedProducts.length > 1 && (
               // 多选时把要加的规模点明：三级各勾几项之后，组合数并不直观。
@@ -639,7 +631,7 @@ export default function App() {
                 className="text-muted-foreground pb-2 text-sm"
                 title={selectedProducts.map((p) => p.title).join("、")}
               >
-                {selectedProducts.length} 个型号 × {storeNumbers.length} 家门店
+                {selectedProducts.length} 個型號 × {storeNumbers.length} 家門市
               </span>
             )}
 
@@ -648,7 +640,7 @@ export default function App() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="从 Apple 官网更新当前品类的型号列表"
+                  aria-label="從 Apple 官網更新目前品類的型號列表"
                   disabled={ui.refreshing}
                   onClick={() => void refreshProducts()}
                 >
@@ -656,19 +648,19 @@ export default function App() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                从 Apple 官网更新当前品类的型号列表。新机发布后用这个，不必等程序更新。
+                從 Apple 官網更新目前品類的型號列表。新機發布後用這個，不必等程式更新。
               </TooltipContent>
             </Tooltip>
           </div>
         </Panel>
 
         <Panel
-          title="运行设置"
-          hint={settingsOpen ? "改动即时保存" : settingsSummary(ui.settings)}
+          title="執行設定"
+          hint={settingsOpen ? "變更即時儲存" : settingsSummary(ui.settings)}
           open={settingsOpen}
           onToggle={toggleSettings}
         >
-          {/* 两栏：左边是查询与本机提醒，右边是推送地址。推送地址一行一个会占好几行，
+          {/* 两栏：左边是查询与本机提醒，右边是推送地址。推送地址一行一個会占好几行，
               和别的设置叠成一列的话，默认窗口高度下监控列表会被挤得看不见。 */}
           <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
             <div className="grid min-w-80 grow-[2] basis-80 gap-3">
@@ -676,10 +668,10 @@ export default function App() {
                 {/* 标题行和右栏「推送地址」一样高，两栏的输入框才能对齐。 */}
                 <div className="flex h-3.5 items-center gap-x-2">
                   <Label htmlFor="proxy-0" className="shrink-0 whitespace-nowrap">
-                    代理地址（可选）
+                    代理位址（選填）
                   </Label>
                   <span className="text-muted-foreground min-w-0 truncate text-xs leading-none">
-                    http / https / socks5，一行一个
+                    http / https / socks5，一行一個
                   </span>
                   {lastProxyRow.trim() !== "" && (
                     <Button
@@ -688,7 +680,7 @@ export default function App() {
                       className="text-muted-foreground hover:text-foreground ml-auto h-3.5 shrink-0 gap-1 p-0 text-xs leading-none has-[>svg]:px-0 [&_svg]:size-3"
                       onClick={() => setProxyDraft([...cleanPushRows(visibleProxyRows), ""])}
                     >
-                      <Plus /> 添加代理
+                      <Plus /> 新增代理
                     </Button>
                   )}
                 </div>
@@ -700,7 +692,7 @@ export default function App() {
                     <div key={index} className="flex items-center gap-2">
                       <Input
                         id={`proxy-${index}`}
-                        aria-label={`代理地址 ${index + 1}`}
+                        aria-label={`代理位址 ${index + 1}`}
                         aria-invalid={rejected || undefined}
                         className="select-text"
                         placeholder="socks5://127.0.0.1:1080 或 http://user:pass@host:port"
@@ -713,7 +705,7 @@ export default function App() {
                         <Badge
                           variant="outline"
                           className="text-destructive border-destructive/40 shrink-0"
-                          title="地址格式不对，这条线路没有生效。支持 http、https、socks5、socks5h，例如 socks5://127.0.0.1:1080"
+                          title="位址格式不對，這條線路沒有生效。支援 http、https、socks5、socks5h，例如 socks5://127.0.0.1:1080"
                         >
                           未生效
                         </Badge>
@@ -721,7 +713,7 @@ export default function App() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label={`删除代理地址 ${index + 1}`}
+                        aria-label={`刪除代理位址 ${index + 1}`}
                         disabled={visibleProxyRows.length === 1 && row === ""}
                         onClick={() =>
                           commitProxyRows(visibleProxyRows.filter((_, i) => i !== index))
@@ -737,7 +729,7 @@ export default function App() {
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="interval" className="whitespace-nowrap">
-                    查询间隔
+                    查詢間隔
                   </Label>
                   <Input
                     id="interval"
@@ -747,7 +739,7 @@ export default function App() {
                     value={intervalValue}
                     onChange={(e) => setIntervalDraft(e.target.valueAsNumber)}
                     onBlur={() => {
-                      const s = Number.isFinite(intervalValue) ? Math.round(intervalValue) : 30;
+                      const s = Number.isFinite(intervalValue) ? Math.round(intervalValue) : 120;
                       setIntervalDraft(null);
                       void setIntervalSeconds(s);
                     }}
@@ -772,7 +764,7 @@ export default function App() {
                       void saveSettings({ ...ui.settings, openBagOnHit: v })
                     }
                   />
-                  <Label htmlFor="openbag">有货时打开购物袋</Label>
+                  <Label htmlFor="openbag">有貨時開啟購物袋</Label>
                 </div>
               </div>
             </div>
@@ -781,10 +773,10 @@ export default function App() {
               {/* 标题行和左栏的标签一样高，两栏的第一行输入框才能对齐。 */}
               <div className="flex h-3.5 items-center gap-x-2">
                 <Label htmlFor="push-0" className="shrink-0 whitespace-nowrap">
-                  推送地址（可选）
+                  推送位址（選填）
                 </Label>
                 <span className="text-muted-foreground min-w-0 truncate text-xs leading-none">
-                  Bark 或飞书群机器人，一行一个，自动识别
+                  Apprise 位址，一行一個
                 </span>
                 {lastPushRow.trim() !== "" && (
                   <Button
@@ -793,7 +785,7 @@ export default function App() {
                     className="text-muted-foreground hover:text-foreground ml-auto h-3.5 shrink-0 gap-1 p-0 text-xs leading-none has-[>svg]:px-0 [&_svg]:size-3"
                     onClick={() => setPushDraft([...cleanPushRows(visiblePushRows), ""])}
                   >
-                    <Plus /> 添加推送地址
+                    <Plus /> 新增推送位址
                   </Button>
                 )}
                 {/* 测试的就是这些推送（连同系统通知和提示音），放在它们的标题旁边。 */}
@@ -803,60 +795,41 @@ export default function App() {
                   className={`text-muted-foreground hover:text-foreground h-3.5 shrink-0 gap-1 p-0 text-xs leading-none has-[>svg]:px-0 [&_svg]:size-3 ${lastPushRow.trim() !== "" ? "" : "ml-auto"}`}
                   onClick={() => void testNotify()}
                 >
-                  <BellRing /> 测试提醒
+                  <BellRing /> 測試提醒
                 </Button>
               </div>
-              {visiblePushRows.map((row, index) => {
-                const kind = savedPushKind.get(row.trim());
-                return (
-                  <div key={index} className="flex items-center gap-2">
-                    {/* 渠道标签占固定宽度：还没保存的行留空，输入框照样对齐。 */}
-                    <span className="flex w-12 shrink-0 justify-center">
-                      {kind !== undefined && (
-                        <Badge variant="outline" className="text-muted-foreground">
-                          {PUSH_KIND_LABEL[kind]}
-                        </Badge>
-                      )}
-                    </span>
-                    <Input
-                      id={`push-${index}`}
-                      aria-label={`推送地址 ${index + 1}`}
-                      className="select-text"
-                      placeholder="粘贴 Bark 地址，或飞书群机器人的 webhook 地址"
-                      value={row}
-                      // 只有点「添加」新开的那一行自动聚焦；启动时的空行不抢焦点。
-                      autoFocus={pushDraft !== null && row === "" && index > 0}
-                      onChange={(e) => editPushRow(index, e.target.value)}
-                      onBlur={() => commitPushRows(visiblePushRows)}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`删除推送地址 ${index + 1}`}
-                      disabled={visiblePushRows.length === 1 && row === ""}
-                      onClick={() =>
-                        commitPushRows(visiblePushRows.filter((_, i) => i !== index))
-                      }
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                );
-              })}
-              {savedPush.some((p) => p.kind === "feishu") && (
-                // 飞书机器人最常见的配置错误是安全设置，只在真填了飞书地址时提醒。
-                <p className="text-muted-foreground pl-14 text-xs">
-                  飞书机器人的安全设置请选「自定义关键词」，填「有货」。
-                </p>
-              )}
+              {visiblePushRows.map((row, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input
+                    id={`push-${index}`}
+                    aria-label={`推送位址 ${index + 1}`}
+                    className="select-text"
+                    placeholder="例如 barks://api.day.app/裝置金鑰"
+                    value={row}
+                    // 只有点「添加」新开的那一行自动聚焦；启动时的空行不抢焦点。
+                    autoFocus={pushDraft !== null && row === "" && index > 0}
+                    onChange={(e) => editPushRow(index, e.target.value)}
+                    onBlur={() => commitPushRows(visiblePushRows)}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`刪除推送位址 ${index + 1}`}
+                    disabled={visiblePushRows.length === 1 && row === ""}
+                    onClick={() => commitPushRows(visiblePushRows.filter((_, i) => i !== index))}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))}
             </div>
           </div>
         </Panel>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Stat label="监控" value={ui.rows.length} />
-          <Stat label="有货" value={summary.inStock} tone="inStock" />
-          <Stat label="无货" value={summary.outOfStock} />
+          <Stat label="監控" value={ui.rows.length} />
+          <Stat label="有貨" value={summary.inStock} tone="inStock" />
+          <Stat label="無貨" value={summary.outOfStock} />
           {summary.untrusted > 0 && (
             // 「其中多少项查不到」单独点出来：这个数字大于 0 时，
             // 表格里那些「无货」也未必反映真实情况。
@@ -865,7 +838,7 @@ export default function App() {
           {ui.running && ui.pacing !== null && ui.pacing.paced && (
             // 请求预算在拉长间隔时明说，否则用户会以为设的 30 秒没生效。
             <span className="text-muted-foreground ml-auto text-sm">
-              受 Apple 频率限制，下一轮 {ui.pacing.nextCheckInSecs} 秒后
+              受 Apple 頻率限制，下一輪 {ui.pacing.nextCheckInSecs} 秒後
             </span>
           )}
         </div>
@@ -875,10 +848,10 @@ export default function App() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="text-muted-foreground w-24 pl-4 text-xs">状态</TableHead>
-                  <TableHead className="text-muted-foreground text-xs">门店</TableHead>
-                  <TableHead className="text-muted-foreground text-xs">型号</TableHead>
-                  <TableHead className="text-muted-foreground w-24 text-xs">最后检查</TableHead>
+                  <TableHead className="text-muted-foreground w-24 pl-4 text-xs">狀態</TableHead>
+                  <TableHead className="text-muted-foreground text-xs">門市</TableHead>
+                  <TableHead className="text-muted-foreground text-xs">型號</TableHead>
+                  <TableHead className="text-muted-foreground w-24 text-xs">最後檢查</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
@@ -886,7 +859,7 @@ export default function App() {
                 {ui.rows.length === 0 ? (
                   <TableRow className="hover:bg-transparent">
                     <TableCell colSpan={5} className="text-muted-foreground h-28 text-center">
-                      {ui.ready ? "还没有监控目标。在上面选好门店和型号，点「添加」。" : "正在载入…"}
+                      {ui.ready ? "還沒有監控目標。在上面選好門市和型號，點「新增」。" : "正在載入…"}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -915,7 +888,7 @@ export default function App() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label="删除这条监控"
+                          aria-label="刪除這筆監控"
                           onClick={() => void onRemove(row.target)}
                         >
                           <Trash2 />
@@ -933,7 +906,7 @@ export default function App() {
           <ScrollArea className="h-full">
             <div className="p-3 font-mono text-xs leading-5 select-text">
               {ui.logs.length === 0 ? (
-                <p className="text-muted-foreground">日志会显示在这里。</p>
+                <p className="text-muted-foreground">日誌會顯示在這裡。</p>
               ) : (
                 ui.logs.map((line, i) => <LogLine key={i} line={line} />)
               )}

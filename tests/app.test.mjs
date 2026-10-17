@@ -33,11 +33,13 @@ function renderApp() {
       changeLocale: async (locale) => { state.settings = { ...state.settings, locale }; },
       setPushUrls: async (urls) => {
         pushSaves.push(urls);
-        // 模拟后端分栏存放。真正的归类规则在 Rust 侧，由 crates/apw-core/tests/config.rs 覆盖；
-        // 这里只需要让界面拿到「哪个地址存在哪一栏」。
-        const feishu = urls.filter((url) => url.includes("/open-apis/bot/v2/hook/"));
-        const bark = urls.filter((url) => !feishu.includes(url));
-        state.settings = { ...state.settings, barkUrl: bark.join(";"), feishuWebhook: feishu.join(";") };
+        // 后端把整组地址存进 appriseUrls，并清掉旧的 Bark / 飞书栏。
+        state.settings = {
+          ...state.settings,
+          appriseUrls: urls.join(";"),
+          barkUrl: "",
+          feishuWebhook: "",
+        };
       },
     };
     if (specifier.startsWith("@/components/") || specifier === "lucide-react") {
@@ -73,27 +75,24 @@ function renderApp() {
   }
   const isPushInput = (element) => /^push-\d+$/.test(element?.props?.id ?? "");
   const isAddPush = (element) => element.type === "Button" &&
-    Array.isArray(element.props.children) && element.props.children.includes(" 添加推送地址");
+    Array.isArray(element.props.children) && element.props.children.includes(" 新增推送位址");
   return {
     proxyRow: (index) => control((element) => element?.props?.id === `proxy-${index}`),
     proxyValues: () => all((element) => /^proxy-\d+$/.test(element?.props?.id ?? "")).map((element) => element.props.value),
-    removeProxy: (index) => control((element) => element?.props?.["aria-label"] === `删除代理地址 ${index + 1}`),
+    removeProxy: (index) => control((element) => element?.props?.["aria-label"] === `刪除代理位址 ${index + 1}`),
     rejectedProxies: () => all((element) => element.type === "Badge" && element.props.children === "未生效").length,
     addProxy: () => control((element) => element.type === "Button" &&
-      Array.isArray(element.props.children) && element.props.children.includes(" 添加代理")),
+      Array.isArray(element.props.children) && element.props.children.includes(" 新增代理")),
     pushRow: (index) => control((element) => element?.props?.id === `push-${index}`),
     pushValues: () => all(isPushInput).map((element) => element.props.value),
-    // 渠道标签按行的顺序排列；还没保存的行没有标签。
-    pushLabels: () => all((element) => element.type === "Badge" && element.props.children !== "未生效")
-      .map((element) => element.props.children),
-    removePush: (index) => control((element) => element?.props?.["aria-label"] === `删除推送地址 ${index + 1}`),
+    removePush: (index) => control((element) => element?.props?.["aria-label"] === `刪除推送位址 ${index + 1}`),
     addPush: () => control(isAddPush),
     hasAddPush: () => all(isAddPush).length > 0,
     choice: (placeholder) => control((element) => element?.props?.placeholder === placeholder),
     addButton: () => control((element) => element.type === "Button" &&
-      Array.isArray(element.props.children) && element.props.children.includes(" 添加")),
+      Array.isArray(element.props.children) && element.props.children.includes(" 新增")),
     scaleHint: () => control((element) => element.type === "span" &&
-      Array.isArray(element.props.children) && element.props.children.includes(" 个型号 × ")),
+      Array.isArray(element.props.children) && element.props.children.includes(" 個型號 × ")),
     state, saved, addedTargets, pushSaves,
   };
 }
@@ -102,13 +101,14 @@ const K1 = "https://api.day.app/k1";
 const K2 = "https://api.day.app/k2";
 const F1 = "https://open.feishu.cn/open-apis/bot/v2/hook/f1";
 
-test("saved push addresses are one list, Bark first then Feishu, labelled by where the backend filed them", () => {
+test("saved push addresses stay in the stored order, and old Bark or Feishu fields still show until migrated", () => {
   const app = renderApp();
   assert.deepEqual(app.pushValues(), ["https://api.day.app/saved-key"]);
-  // 没动过时跟着后端走。
+  // 没动过时跟着后端走。旧文件没有 appriseUrls，就先显示原来的两栏。
   app.state.settings = { ...app.state.settings, barkUrl: `${K1};${K2}`, feishuWebhook: F1 };
   assert.deepEqual(app.pushValues(), [K1, K2, F1]);
-  assert.deepEqual(app.pushLabels(), ["Bark", "Bark", "飞书"]);
+  app.state.settings = { ...app.state.settings, appriseUrls: `${F1};${K1}`, barkUrl: "", feishuWebhook: "" };
+  assert.deepEqual(app.pushValues(), [F1, K1]);
   // 最后一行有内容才给「添加」，界面上最多只有一个空行。
   assert.equal(app.hasAddPush(), true);
 });
@@ -116,14 +116,13 @@ test("saved push addresses are one list, Bark first then Feishu, labelled by whe
 test("old settings without push addresses show one empty row that saves on blur", () => {
   const app = renderApp();
   app.state.settings = { locale: "zh_CN", barkUrl: "", intervalSeconds: 30 };
-  assert.deepEqual(app.pushValues(), [""], "老设置没有 feishuWebhook 字段，也应当是一个空行而不是报错");
+  assert.deepEqual(app.pushValues(), [""], "老设置没有推送字段，也应当是一个空行而不是报错");
   assert.equal(app.hasAddPush(), false);
   assert.equal(app.removePush(0).disabled, true, "只剩一个空行时删除没有意义");
   app.pushRow(0).onChange({ target: { value: `  ${F1}  ` } });
   app.pushRow(0).onBlur();
   assert.deepEqual(app.pushSaves.at(-1), [F1]);
   assert.deepEqual(app.pushValues(), [F1]);
-  assert.deepEqual(app.pushLabels(), ["飞书"]);
 });
 
 test("adding a row keeps the typed order, splits a pasted semicolon list, and skips saves with no change", () => {
@@ -133,12 +132,11 @@ test("adding a row keeps the typed order, splits a pasted semicolon list, and sk
   app.addPush().onClick();
   assert.deepEqual(app.pushValues(), ["https://api.day.app/saved-key", ""]);
   assert.equal(app.hasAddPush(), false);
-  // 老版本用分号连着的一整串粘进了一行：拆成几行，各归各的渠道。
+  // 老版本用分号连着的一整串粘进了一行：拆开，顺序保持粘贴时的先后。
   app.pushRow(1).onChange({ target: { value: ` ${F1};${K2} ` } });
   app.pushRow(1).onBlur();
   assert.deepEqual(app.pushSaves.at(-1), ["https://api.day.app/saved-key", F1, K2]);
   assert.deepEqual(app.pushValues(), ["https://api.day.app/saved-key", F1, K2]);
-  assert.deepEqual(app.pushLabels(), ["Bark", "飞书", "Bark"]);
   // 新开的空行没填就离开，这一行直接消失，不写盘。
   app.addPush().onClick();
   app.pushRow(3).onBlur();
@@ -148,17 +146,17 @@ test("adding a row keeps the typed order, splits a pasted semicolon list, and sk
 
 test("deleting a row saves the rest at once, and clearing the last one leaves an empty row", () => {
   const app = renderApp();
-  app.state.settings = { ...app.state.settings, barkUrl: K1, feishuWebhook: F1 };
+  app.state.settings = { ...app.state.settings, appriseUrls: `${K1};${F1}`, barkUrl: "", feishuWebhook: "" };
   app.removePush(0).onClick();
   assert.deepEqual(app.pushSaves.at(-1), [F1]);
   assert.deepEqual(app.pushValues(), [F1]);
-  assert.equal(app.state.settings.barkUrl, "");
+  assert.equal(app.state.settings.appriseUrls, F1);
   // 清空也是明确的操作：保存空列表，界面不退回旧地址。
   app.pushRow(0).onChange({ target: { value: "" } });
   app.pushRow(0).onBlur();
   assert.deepEqual(app.pushSaves.at(-1), []);
   assert.deepEqual(app.pushValues(), [""]);
-  assert.equal(app.state.settings.feishuWebhook, "");
+  assert.equal(app.state.settings.appriseUrls, "");
 });
 
 function phoneSelectionApp() {
@@ -170,10 +168,10 @@ function phoneSelectionApp() {
     { partNumber: "C", category: "iphone", family: "iphone18promax", capacity: "512GB", color: "银色", title: "iPhone 18 Pro Max 512GB 银色" },
     { partNumber: "D", category: "ipad", family: "ipadpro", capacity: "256GB", color: "银色", title: "iPad Pro 256GB 银色" },
   ];
-  app.choice("选择自提门店").onChange(["R532"]);
-  app.choice("选择机型").onChange(["iphone18pro"]);
-  app.choice("选择容量").onChange(["512GB"]);
-  app.choice("选择颜色").onChange(["银色"]);
+  app.choice("選擇取貨門市").onChange(["R532"]);
+  app.choice("選擇機型").onChange(["iphone18pro"]);
+  app.choice("選擇容量").onChange(["512GB"]);
+  app.choice("選擇顏色").onChange(["银色"]);
   return app;
 }
 
@@ -186,34 +184,34 @@ test("iPhone choices add the exact monitoring target and reset after adding", as
     locale: "zh_CN", storeNumber: "R532", storeTitle: "杭州万象城",
     partNumber: "B", productName: "iPhone 18 Pro 512GB 银色",
   }]]);
-  assert.deepEqual(app.choice("选择机型").values, []);
-  assert.equal(app.choice("选择容量").disabled, true);
-  assert.equal(app.choice("选择颜色").disabled, true);
+  assert.deepEqual(app.choice("選擇機型").values, []);
+  assert.equal(app.choice("選擇容量").disabled, true);
+  assert.equal(app.choice("選擇顏色").disabled, true);
   assert.equal(app.addButton().disabled, true);
 });
 
 test("narrowing storage or model keeps the choices that still exist and drops the rest", () => {
   const app = phoneSelectionApp();
   // 只留 256GB：Pro 的 256GB 只有黑色，之前选的银色不再成立，被去掉。
-  app.choice("选择容量").onChange(["256GB"]);
-  assert.deepEqual(app.choice("选择颜色").options, [{ value: "黑色", label: "黑色" }]);
-  assert.deepEqual(app.choice("选择颜色").values, []);
+  app.choice("選擇容量").onChange(["256GB"]);
+  assert.deepEqual(app.choice("選擇顏色").options, [{ value: "黑色", label: "黑色" }]);
+  assert.deepEqual(app.choice("選擇顏色").values, []);
   assert.equal(app.addButton().disabled, true);
-  app.choice("选择颜色").onChange(["黑色"]);
+  app.choice("選擇顏色").onChange(["黑色"]);
   assert.equal(app.addButton().disabled, false);
   // 换成 Pro Max：它没有 256GB，容量和颜色都跟着清空。
-  app.choice("选择机型").onChange(["iphone18promax"]);
-  assert.deepEqual(app.choice("选择容量").values, []);
-  assert.deepEqual(app.choice("选择颜色").values, []);
+  app.choice("選擇機型").onChange(["iphone18promax"]);
+  assert.deepEqual(app.choice("選擇容量").values, []);
+  assert.deepEqual(app.choice("選擇顏色").values, []);
   assert.equal(app.addButton().disabled, true);
 });
 
 test("switching model keeps a storage and colour the new model also has", () => {
   const app = phoneSelectionApp();
   // 从 Pro 换到 Pro Max，512GB 银色两款都有，不必重选。
-  app.choice("选择机型").onChange(["iphone18promax"]);
-  assert.deepEqual(app.choice("选择容量").values, ["512GB"]);
-  assert.deepEqual(app.choice("选择颜色").values, ["银色"]);
+  app.choice("選擇機型").onChange(["iphone18promax"]);
+  assert.deepEqual(app.choice("選擇容量").values, ["512GB"]);
+  assert.deepEqual(app.choice("選擇顏色").values, ["银色"]);
   assert.equal(app.addButton().disabled, false);
 });
 
@@ -223,12 +221,12 @@ test("several models, storages and colours add every existing combination for ev
     { number: "R532", title: "杭州万象城" },
     { number: "R471", title: "杭州西湖" },
   ];
-  app.choice("选择自提门店").onChange(["R532", "R471"]);
-  app.choice("选择机型").onChange(["iphone18pro", "iphone18promax"]);
-  app.choice("选择容量").onChange(["256GB", "512GB"]);
-  app.choice("选择颜色").onChange(["黑色", "银色"]);
+  app.choice("選擇取貨門市").onChange(["R532", "R471"]);
+  app.choice("選擇機型").onChange(["iphone18pro", "iphone18promax"]);
+  app.choice("選擇容量").onChange(["256GB", "512GB"]);
+  app.choice("選擇顏色").onChange(["黑色", "银色"]);
   // 八种组合里目录只有三台，提示里点明规模。
-  assert.equal(app.scaleHint().children.join(""), "3 个型号 × 2 家门店");
+  assert.equal(app.scaleHint().children.join(""), "3 個型號 × 2 家門市");
   assert.equal(app.addButton().disabled, false);
   app.addButton().onClick();
   await new Promise(setImmediate);
@@ -240,30 +238,30 @@ test("several models, storages and colours add every existing combination for ev
     { locale: "zh_CN", storeNumber: "R471", storeTitle: "杭州西湖", partNumber: "B", productName: "iPhone 18 Pro 512GB 银色" },
     { locale: "zh_CN", storeNumber: "R471", storeTitle: "杭州西湖", partNumber: "C", productName: "iPhone 18 Pro Max 512GB 银色" },
   ]]);
-  assert.deepEqual(app.choice("选择机型").values, []);
-  assert.deepEqual(app.choice("选择自提门店").values, ["R532", "R471"]);
+  assert.deepEqual(app.choice("選擇機型").values, []);
+  assert.deepEqual(app.choice("選擇取貨門市").values, ["R532", "R471"]);
 });
 
 test("switching category or region clears the phone selection and preserves other categories", () => {
   const app = phoneSelectionApp();
-  app.choice("选择品类").onChange("ipad");
-  assert.equal(app.choice("选择型号").value, "");
-  assert.deepEqual(app.choice("选择型号").options, [{ value: "D", label: "iPad Pro 256GB 银色" }]);
+  app.choice("選擇品類").onChange("ipad");
+  assert.equal(app.choice("選擇型號").value, "");
+  assert.deepEqual(app.choice("選擇型號").options, [{ value: "D", label: "iPad Pro 256GB 银色" }]);
   assert.equal(app.addButton().disabled, true);
-  app.choice("选择型号").onChange("D");
+  app.choice("選擇型號").onChange("D");
   assert.equal(app.addButton().disabled, false);
-  app.choice("选择品类").onChange("iphone");
-  assert.deepEqual(app.choice("选择机型").values, []);
+  app.choice("選擇品類").onChange("iphone");
+  assert.deepEqual(app.choice("選擇機型").values, []);
   assert.equal(app.addButton().disabled, true);
 
-  app.choice("选择机型").onChange(["iphone18pro"]);
-  app.choice("选择容量").onChange(["512GB"]);
-  app.choice("选择颜色").onChange(["银色"]);
-  app.choice("选择地区").onChange("ja_JP");
-  assert.deepEqual(app.choice("选择自提门店").values, []);
-  assert.deepEqual(app.choice("选择机型").values, []);
-  assert.deepEqual(app.choice("选择容量").values, []);
-  assert.deepEqual(app.choice("选择颜色").values, []);
+  app.choice("選擇機型").onChange(["iphone18pro"]);
+  app.choice("選擇容量").onChange(["512GB"]);
+  app.choice("選擇顏色").onChange(["银色"]);
+  app.choice("選擇地區").onChange("ja_JP");
+  assert.deepEqual(app.choice("選擇取貨門市").values, []);
+  assert.deepEqual(app.choice("選擇機型").values, []);
+  assert.deepEqual(app.choice("選擇容量").values, []);
+  assert.deepEqual(app.choice("選擇顏色").values, []);
   assert.equal(app.addButton().disabled, true);
 });
 
@@ -279,7 +277,7 @@ test("selecting several stores adds one target per store, skips existing ones, a
     target: { locale: "zh_CN", storeNumber: "R359", storeTitle: "上海南京东路", partNumber: "B", productName: "iPhone 18 Pro 512GB 银色" },
     availability: { kind: "out_of_stock" }, lastCheckedMs: null, consecutiveFailures: 0,
   }];
-  app.choice("选择自提门店").onChange(["R532", "R471", "R359"]);
+  app.choice("選擇取貨門市").onChange(["R532", "R471", "R359"]);
   assert.equal(app.addButton().disabled, false);
   app.addButton().onClick();
   await new Promise(setImmediate);
@@ -289,16 +287,16 @@ test("selecting several stores adds one target per store, skips existing ones, a
     { locale: "zh_CN", storeNumber: "R471", storeTitle: "杭州西湖", partNumber: "B", productName: "iPhone 18 Pro 512GB 银色" },
   ]]);
   // 型号清掉、门店保留，接着给同一批门店加下一个型号最顺手。
-  assert.deepEqual(app.choice("选择机型").values, []);
-  assert.deepEqual(app.choice("选择自提门店").values, ["R532", "R471", "R359"]);
+  assert.deepEqual(app.choice("選擇機型").values, []);
+  assert.deepEqual(app.choice("選擇取貨門市").values, ["R532", "R471", "R359"]);
   assert.equal(app.addButton().disabled, true);
 });
 
 test("the add button stays disabled until at least one store is selected", () => {
   const app = phoneSelectionApp();
-  app.choice("选择自提门店").onChange([]);
+  app.choice("選擇取貨門市").onChange([]);
   assert.equal(app.addButton().disabled, true);
-  app.choice("选择自提门店").onChange(["R532"]);
+  app.choice("選擇取貨門市").onChange(["R532"]);
   assert.equal(app.addButton().disabled, false);
 });
 

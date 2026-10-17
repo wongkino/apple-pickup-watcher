@@ -86,8 +86,9 @@ fn 样例设置() -> Settings {
         locale: "zh_CN".into(),
         targets: vec![目标("R683", "MG724CH/A"), 目标("R448", "MG0A4CH/A")],
         interval_seconds: 45,
-        bark_url: "https://api.day.app/xxxx".into(),
-        feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/yyyy".into(),
+        bark_url: String::new(),
+        feishu_webhook: String::new(),
+        apprise_urls: "barks://api.day.app/xxxx;feishu://yyyy".into(),
         sound_enabled: false,
         open_bag_on_hit: true,
         proxies: Vec::new(),
@@ -404,7 +405,8 @@ fn 迁移能读出旧版格式() {
 
     assert_eq!(got.locale, "zh_HK");
     assert_eq!(got.interval_seconds, 60);
-    assert_eq!(got.bark_url, "https://api.day.app/legacy");
+    assert_eq!(got.bark_url, "");
+    assert_eq!(got.apprise_urls, "barks://api.day.app/legacy");
     assert!(!got.sound_enabled);
     assert!(got.open_bag_on_hit);
     assert_eq!(got.targets.len(), 1);
@@ -498,6 +500,7 @@ fn 设置的线上格式是小驼峰() {
         "intervalSeconds",
         "barkUrl",
         "feishuWebhook",
+        "appriseUrls",
         "soundEnabled",
         "openBagOnHit",
         "proxies",
@@ -505,7 +508,7 @@ fn 设置的线上格式是小驼峰() {
         assert!(obj.contains_key(key), "缺少字段 {key}：{value}");
     }
     assert!(!obj.contains_key("interval_seconds"), "不该有蛇形字段");
-    assert_eq!(obj.len(), 8);
+    assert_eq!(obj.len(), 9);
 }
 
 #[test]
@@ -524,7 +527,7 @@ fn 配置文件路径落在用户配置目录下() {
 }
 
 #[test]
-fn 多个bark地址在规范化后按分号存储并能拆出() {
+fn 多个bark地址在规范化后改写成apprise并去重() {
     use apw_core::config::Settings;
     let mut s = Settings {
         bark_url: "  https://api.day.app/a ;\nhttps://api.day.app/b ; https://api.day.app/a "
@@ -533,12 +536,13 @@ fn 多个bark地址在规范化后按分号存储并能拆出() {
     };
     s.normalize();
     assert_eq!(
-        s.bark_url, "https://api.day.app/a;https://api.day.app/b",
-        "去空白、去重、分号相连"
+        s.apprise_urls, "barks://api.day.app/a;barks://api.day.app/b",
+        "去空白、去重，并改成 Apprise 的 Bark 地址"
     );
+    assert!(s.bark_url.is_empty());
     assert_eq!(
-        s.bark_urls(),
-        ["https://api.day.app/a", "https://api.day.app/b"]
+        s.push_urls(),
+        ["barks://api.day.app/a", "barks://api.day.app/b"]
     );
 
     let mut single = Settings {
@@ -546,15 +550,13 @@ fn 多个bark地址在规范化后按分号存储并能拆出() {
         ..Settings::default()
     };
     single.normalize();
-    assert_eq!(
-        single.bark_url, "https://api.day.app/only",
-        "单地址只去掉前后空白，写法不变"
-    );
+    assert_eq!(single.apprise_urls, "barks://api.day.app/only");
+    assert!(single.bark_url.is_empty());
 
     let mut none = Settings::default();
     none.normalize();
-    assert_eq!(none.bark_url, "");
-    assert!(none.bark_urls().is_empty());
+    assert_eq!(none.apprise_urls, "");
+    assert!(none.push_urls().is_empty());
 }
 
 #[test]
@@ -594,40 +596,58 @@ fn 代理地址只留合法的并去重() {
 }
 
 // ---------------------------------------------------------------------------
-// 推送地址：界面上是一个列表，文件里按渠道分两栏存
+// 推送地址：界面上是一个列表，文件里存 Apprise 地址
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 推送地址按长相归到bark或飞书() {
-    use apw_core::config::{PushKind, push_kind};
+fn 旧的bark和飞书地址改写成apprise() {
+    use apw_core::config::legacy_push_to_apprise;
 
-    for feishu in [
-        "https://open.feishu.cn/open-apis/bot/v2/hook/abc",
-        "https://open.larksuite.com/open-apis/bot/v2/hook/abc",
-        " https://open.feishu.cn/open-apis/bot/v2/hook/abc ",
-        // 漏写协议也认得出来，发送时报的才会是飞书那边的错。
-        "open.feishu.cn/open-apis/bot/v2/hook/abc",
-    ] {
-        assert_eq!(push_kind(feishu), PushKind::Feishu, "{feishu:?}");
-    }
-    for bark in [
-        "https://api.day.app/key",
-        "https://api.day.app/key?group=库存&sound=alarm",
-        // 自建的 Bark 服务器主机名认不出来，兜底当 Bark。
-        "https://bark.example.com/key",
-        // 只看路径：飞书地址出现在查询参数里不算。
-        "https://api.day.app/key?url=https://open.feishu.cn/open-apis/bot/v2/hook/x",
-        "不是地址",
-    ] {
-        assert_eq!(push_kind(bark), PushKind::Bark, "{bark:?}");
-    }
+    assert_eq!(
+        legacy_push_to_apprise("https://api.day.app/key"),
+        "barks://api.day.app/key"
+    );
+    assert_eq!(
+        legacy_push_to_apprise("https://api.day.app/key?group=stock&sound=alarm"),
+        "barks://api.day.app/key?group=stock&sound=alarm"
+    );
+    assert_eq!(
+        legacy_push_to_apprise("http://bark.example.com:8080/key"),
+        "bark://bark.example.com:8080/key"
+    );
+    // 查询参数里出现飞书路径，也不该把整条 Bark 地址当成飞书。
+    assert_eq!(
+        legacy_push_to_apprise(
+            "https://api.day.app/key?url=https://open.feishu.cn/open-apis/bot/v2/hook/x"
+        ),
+        "barks://api.day.app/key?url=https://open.feishu.cn/open-apis/bot/v2/hook/x"
+    );
+    assert_eq!(
+        legacy_push_to_apprise("https://open.feishu.cn/open-apis/bot/v2/hook/abc"),
+        "feishu://abc"
+    );
+    assert_eq!(
+        legacy_push_to_apprise("https://open.larksuite.com/open-apis/bot/v2/hook/abc"),
+        "lark://abc"
+    );
+    // 漏写协议也认得出来。
+    assert_eq!(
+        legacy_push_to_apprise("open.feishu.cn/open-apis/bot/v2/hook/abc"),
+        "feishu://abc"
+    );
+    // 已经是 Apprise 写法的原样留下。
+    assert_eq!(
+        legacy_push_to_apprise("discord://hook/token"),
+        "discord://hook/token"
+    );
+    assert_eq!(legacy_push_to_apprise("不是地址"), "不是地址");
 }
 
 #[test]
-fn 推送地址整组替换时各归各的渠道并去重() {
-    let b1 = "https://api.day.app/b1";
-    let b2 = "https://api.day.app/b2";
-    let f1 = "https://open.feishu.cn/open-apis/bot/v2/hook/f1";
+fn 推送地址整组替换时按填写顺序保存并清掉旧栏() {
+    let b1 = "barks://api.day.app/b1";
+    let b2 = "discord://hook/b2";
+    let f1 = "feishu://f1";
     let mut s = Settings::default();
     s.set_push_urls(&[
         format!(" {f1} "),
@@ -636,32 +656,27 @@ fn 推送地址整组替换时各归各的渠道并去重() {
         // 老版本里用分号连着的一整串被粘进了同一行。
         format!("{b2};{b1}"),
     ]);
-    assert_eq!(s.bark_url, format!("{b1};{b2}"));
-    assert_eq!(s.feishu_webhook, f1);
-    // 读回来是 Bark 在前、飞书在后，各自保持填写顺序。
-    assert_eq!(s.push_urls(), vec![b1, b2, f1]);
+    assert_eq!(s.apprise_urls, format!("{f1};{b1};{b2}"));
+    assert!(s.bark_url.is_empty() && s.feishu_webhook.is_empty());
+    assert_eq!(s.push_urls(), vec![f1, b1, b2]);
 
     s.set_push_urls(&[]);
-    assert!(s.bark_url.is_empty() && s.feishu_webhook.is_empty());
+    assert!(s.apprise_urls.is_empty());
     assert!(s.push_urls().is_empty());
 }
 
 #[test]
-fn 填在bark一栏的飞书地址规范化后挪到飞书() {
-    // 支持飞书之前只有 Bark 一栏可填，有人把飞书地址填了进去。升级后它应当
-    // 自己挪到飞书，开始正常推送，而不是一直按 Bark 的格式发、一直报错。
+fn 旧栏里的地址规范化后并进apprise且再规范化不变() {
     let mut s = Settings {
         bark_url: "https://api.day.app/b1;https://open.feishu.cn/open-apis/bot/v2/hook/f1".into(),
+        feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/f1".into(),
         ..Settings::default()
     };
     s.normalize();
-    assert_eq!(s.bark_url, "https://api.day.app/b1");
-    assert_eq!(
-        s.feishu_webhook,
-        "https://open.feishu.cn/open-apis/bot/v2/hook/f1"
-    );
+    assert_eq!(s.apprise_urls, "barks://api.day.app/b1;feishu://f1");
+    assert!(s.bark_url.is_empty());
+    assert!(s.feishu_webhook.is_empty());
 
-    // 再规范化一次结果不变。
     let once = s.clone();
     s.normalize();
     assert_eq!(s, once);

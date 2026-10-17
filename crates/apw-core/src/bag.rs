@@ -1,14 +1,14 @@
 //! 每次监控会话只自动打开一次购物袋，避免多个目标同时到货打断结账。
 
-use apw_core::model::region_by_locale;
+use crate::model::region_by_locale;
 
 #[derive(Default)]
-pub(crate) struct AutoOpenBag {
+pub struct AutoOpenBag {
     opened_this_run: bool,
 }
 
 impl AutoOpenBag {
-    pub(crate) fn on_run_state_changed(&mut self, running: bool) {
+    pub fn on_run_state_changed(&mut self, running: bool) {
         // 暂停不能重新布防：本轮已经排队的到货事件仍属于上一次会话。
         // 只有下一次真正开始监控时，才允许重新打开购物袋。
         if running {
@@ -16,7 +16,7 @@ impl AutoOpenBag {
         }
     }
 
-    pub(crate) fn open_if_needed<E>(
+    pub fn open_if_needed<E>(
         &mut self,
         enabled: bool,
         locale: &str,

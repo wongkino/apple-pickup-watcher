@@ -54,9 +54,9 @@ impl Availability {
     /// 供界面展示的中文描述。
     pub fn label(&self) -> &'static str {
         match self {
-            Self::InStock => "有货",
-            Self::OutOfStock => "无货",
-            Self::Unknown(UnknownReason::NotYetChecked) => "待查询",
+            Self::InStock => "有貨",
+            Self::OutOfStock => "無貨",
+            Self::Unknown(UnknownReason::NotYetChecked) => "待查詢",
             Self::Unknown(_) => "未知",
         }
     }
@@ -101,14 +101,14 @@ impl UnknownReason {
     /// 供界面展示的一句话说明。
     pub fn describe(&self) -> String {
         match self {
-            Self::NotYetChecked => "尚未查询".to_string(),
-            Self::Blocked { detail } => format!("请求被 Apple 拦截：{detail}"),
-            Self::RateLimited => "请求过于频繁被限流，正在退避".to_string(),
+            Self::NotYetChecked => "尚未查詢".to_string(),
+            Self::Blocked { detail } => format!("請求被 Apple 攔截：{detail}"),
+            Self::RateLimited => "請求過於頻繁被限流，正在退避".to_string(),
             Self::SchemaDrift { field, raw } => {
-                format!("接口返回结构与预期不符：字段 {field} 的取值为 {raw:?}")
+                format!("介面回傳結構與預期不符：欄位 {field} 的取值為 {raw:?}")
             }
-            Self::AppleError { message } => format!("Apple 返回错误：{message}"),
-            Self::Transport { detail } => format!("网络请求失败：{detail}"),
+            Self::AppleError { message } => format!("Apple 傳回錯誤：{message}"),
+            Self::Transport { detail } => format!("網路請求失敗：{detail}"),
         }
     }
 
@@ -358,19 +358,19 @@ const DEFAULT_FAMILIES: &[Family] = &[
 /// 的真实门店号与零件号，均返回 HTTP 200 且带有 `partsAvailability`。
 pub const REGIONS: &[Region] = &[
     Region {
-        title: "中国大陆",
+        title: "中國大陸",
         locale: "zh_CN",
         base_url: "https://www.apple.com.cn",
         families: DEFAULT_FAMILIES,
     },
     Region {
-        title: "中国香港",
+        title: "中國香港",
         locale: "zh_HK",
         base_url: "https://www.apple.com/hk-zh",
         families: DEFAULT_FAMILIES,
     },
     Region {
-        title: "中国台湾",
+        title: "中國台灣",
         locale: "zh_TW",
         base_url: "https://www.apple.com/tw",
         families: DEFAULT_FAMILIES,
@@ -576,9 +576,9 @@ mod tests {
     fn 待查询与未知与无货在界面上是三种文案() {
         let pending = Availability::Unknown(UnknownReason::NotYetChecked);
         let broken = Availability::Unknown(UnknownReason::RateLimited);
-        assert_eq!(pending.label(), "待查询");
+        assert_eq!(pending.label(), "待查詢");
         assert_eq!(broken.label(), "未知");
-        assert_eq!(Availability::OutOfStock.label(), "无货");
+        assert_eq!(Availability::OutOfStock.label(), "無貨");
         // 三者必须互不相同 —— 上游把它们全糊成一种显示，用户无从分辨程序是在
         // 正常工作还是已经废了。
         assert_ne!(pending.label(), broken.label());

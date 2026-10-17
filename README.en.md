@@ -73,6 +73,14 @@ cargo install --path crates/apw-cli --locked   # installs into ~/.cargo/bin
 
 All you need is stable Rust; no Node, desktop environment, or audio device. Prebuilt packages can be downloaded from any successful run of the [CLI workflow](https://github.com/ENCHIGO/apple-pickup-watcher/actions/workflows/cli.yml) (Artifacts, GitHub login required); each package includes the skill and the docs.
 
+To open the same interface in a browser without a desktop install, use Docker. The page plays the alert sound and can show browser notifications; Bark / Feishu are still sent by the server:
+
+```bash
+docker compose up -d --build
+```
+
+Then open <http://localhost:8080>. Details are in the [CLI docs](docs/cli.md#docker).
+
 ### Agent skill
 
 With Node.js LTS installed, one [Skills CLI](https://github.com/vercel-labs/skills) command installs it into Codex:
@@ -90,7 +98,7 @@ For Claude Code replace `codex` with `claude-code`; drop `--global` to install i
 ### Desktop in three steps
 
 1. **Add targets**: choose region → category → store → model and click “Add”. You can tick several stores at once and get one target per store. For iPhone, pick the model, capacity and colour step by step; each step accepts several choices, and every combination the catalogue has is added at once. Add as many as you like, mixing categories and stores freely.
-2. **Start watching**: click “Start”. Keep the app running and your computer online and awake; closing the window moves it to the tray and keeps it going. It polls every 30 seconds by default, with a minimum of 5 seconds.
+2. **Start watching**: click “Start”. Keep the app running and your computer online and awake; closing the window moves it to the tray and keeps it going. It polls every 120 seconds by default, with a minimum of 5 seconds.
 3. **Get the alert, then buy on Apple’s website**: when stock is confirmed you get a desktop notification, the alert sound, and a Bark or Feishu push, and the shopping bag can open if enabled. Adding the item, choosing the pickup store, checkout, and payment are done by you on Apple’s website.
 
 Continuous availability is not re-announced every cycle; a target alerts again only after it leaves the in-stock state and comes back. When you see “monitoring is currently unreliable”, don’t trust the “out of stock” rows in the list. Follow the hint and find the cause first.
@@ -153,11 +161,11 @@ No, and no. It only checks stock and alerts you, and at most opens your shopping
 
 ### How do I get alerts on my phone?
 
-Install [Bark](https://github.com/Finb/Bark) on your iPhone, paste the push URL it gives you into the “推送地址” (push addresses) list in settings, and click “Test alert” to confirm the whole chain works. On Android, or to alert a Feishu group, add a custom bot to the group with the keyword “有货” as its security setting and paste its webhook URL into the same list; see the [desktop guide](docs/desktop.md#飞书群机器人推送). The app tells Bark and Feishu addresses apart on its own; to reach several phones or groups, click “添加推送地址” (add push address) and enter one per line. A failed push never changes the stock verdict.
+Push goes through [Apprise](https://github.com/caronc/apprise). Enter one Apprise URL per line in the “推送地址” (push addresses) list, for example `barks://api.day.app/device-key` or `feishu://bot-token`, then click “Test alert”. To reach several phones or groups, click “添加推送地址” (add push address). The web image already includes the `apprise` command; the desktop app needs that command on the machine. Bark and Feishu URLs saved by older versions are rewritten as Apprise URLs when the settings are loaded. A failed push never changes the stock verdict. See the [desktop guide](docs/desktop.md#推送地址).
 
-### Why is the default polling interval 30 seconds?
+### Why is the default polling interval 120 seconds?
 
-Store stock does not flip back and forth within seconds, and 30 seconds is plenty for launch-day buying. The minimum is 5 seconds; anything lower falls back to 30. It is a floor, not a promise: Apple limits pickup queries per egress IP, so the app stretches the real interval to fit its request budget (one request per city per cycle, roughly one per minute at steady state) and shows the next check time in the footer. Please don’t use it for bulk buying for resale, which only gets this route shut down for everyone.
+Store stock does not flip back and forth within seconds, and 120 seconds is plenty for launch-day buying. The minimum is 5 seconds; anything lower falls back to 120. It is a floor, not a promise: Apple limits pickup queries per egress IP, so the app stretches the real interval to fit its request budget (one request per city per cycle, roughly one per minute at steady state) and shows the next check time in the footer. Please don’t use it for bulk buying for resale, which only gets this route shut down for everyone.
 
 More: [desktop guide](docs/desktop.md) · [CLI docs](docs/cli.md) · [development and maintenance](docs/development.md)
 
@@ -165,7 +173,7 @@ More: [desktop guide](docs/desktop.md) · [CLI docs](docs/cli.md) · [developmen
 
 | Document | Contents |
 | --- | --- |
-| [Desktop guide](docs/desktop.md) | Installation, monitoring and alert rules, model catalog, Bark and Feishu push, config file, FAQ |
+| [Desktop guide](docs/desktop.md) | Installation, monitoring and alert rules, model catalog, Apprise push, config file, FAQ |
 | [CLI and agent skill](docs/cli.md) | Build and install, commands, JSON / NDJSON format, batch targets, exit codes |
 | [Development and maintenance](docs/development.md) | Toolchain, checks, code layout, live API contract tests, release process |
 | [Website maintenance](docs/discoverability.md) | Building and deploying the project site, search indexing conventions |

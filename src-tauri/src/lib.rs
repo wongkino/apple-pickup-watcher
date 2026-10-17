@@ -15,7 +15,7 @@ use apw_core::apple::{AppleClient, ClientConfig};
 use apw_core::catalog::Catalog;
 use apw_core::config::{MIN_INTERVAL_SECONDS, Settings, SettingsStore};
 use apw_core::model::{Category, Product, REGIONS, Store, Target, region_by_locale};
-use apw_core::notify::{Bark, Feishu, Multi, Notification, Notifier, Sound};
+use apw_core::notify::{Apprise, Multi, Notification, Notifier, Sound};
 use apw_core::watcher::{Event, TargetState, Watcher, WatcherConfig};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
@@ -23,10 +23,9 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_updater::UpdaterExt;
 
-mod auto_open;
 mod notification_queue;
 
-use auto_open::AutoOpenBag;
+use apw_core::bag::AutoOpenBag;
 
 /// 前端事件通道名。前端用 `listen("watcher://event", ...)` 订阅。
 const EVENT_CHANNEL: &str = "watcher://event";
@@ -135,7 +134,7 @@ async fn refresh_products(
     locale: String,
     category: Option<Category>,
 ) -> Result<usize, String> {
-    let region = region_by_locale(&locale).ok_or_else(|| format!("认不出地区 {locale}"))?;
+    let region = region_by_locale(&locale).ok_or_else(|| format!("認不出地區 {locale}"))?;
     state
         .catalog
         .refresh_products(region, category, &state.http)
@@ -167,7 +166,7 @@ async fn save_settings(
             .client
             .set_proxies(&next.proxies)
             .await
-            .map_err(|e| format!("代理设置未生效：{e}"))?;
+            .map_err(|e| format!("代理設定未生效：{e}"))?;
     }
 
     state.put_settings(next.clone())?;
@@ -176,7 +175,7 @@ async fn save_settings(
 
 /// 用界面上的推送地址列表整体替换现有的。
 ///
-/// 每个地址是 Bark 还是飞书由 [`Settings::set_push_urls`] 按长相判断，界面不自己猜。
+/// 地址按 Apprise 的写法原样保存，界面不自己猜渠道。
 /// 只动推送地址：不经过 [`save_settings`]，免得顺带把引擎的目标、间隔和代理
 /// 也重新下发一遍。
 #[tauri::command]
@@ -275,7 +274,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         .check()
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "已经是最新版本".to_string())?;
+        .ok_or_else(|| "已經是最新版本".to_string())?;
 
     let handle = app.clone();
     update
@@ -300,15 +299,16 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
 async fn test_notify(app: AppHandle) -> Result<(), String> {
     dispatch_notification(
         &app,
-        // 标题刻意和真实到货提醒一样带「有货了」：飞书自定义机器人的关键词
+        // 标题刻意和真实到货提醒一样带「有貨了」：飞书自定义机器人的关键词
         // 安全模式只放行含关键词的消息，测试文案若不含，用户会误以为配置坏了。
-        Notification::new("有货了（测试）", "如果你看到并听到了这条，说明提醒是通的"),
+        // Apprise 的 `feishu://` 地址同样会带上这个标题。
+        Notification::new("有貨了（測試）", "如果你看到並聽到了這則，表示提醒是通的"),
     )
     .await
     .map_err(|e| e.to_string())
 }
 
-/// 发出一条提醒：系统通知 + 提示音 + Bark，按用户设置取舍。
+/// 发出一条提醒：系统通知 + 提示音 + Apprise，按用户设置取舍。
 async fn dispatch_notification(
     app: &AppHandle,
     notification: Notification,
@@ -326,28 +326,9 @@ async fn dispatch_notification(
     if settings.sound_enabled {
         channels.push(Sound::embedded());
     }
-    if !settings.bark_url.trim().is_empty() {
-        let http = app
-            .try_state::<AppState>()
-            .map(|s| s.http.clone())
-            .unwrap_or_default();
-        // Bark 每次现构造：地址是用户随时可改的设置项，缓存实例会在改完地址后
-        // 继续往旧地址推。共享的 http 客户端一并传进去，连接池仍然复用。
-        // 用户可以填多个地址（分号分隔），每个地址一条渠道，并发推送、各自报错。
-        for bark in Bark::from_list(&settings.bark_url, http) {
-            channels.push(bark);
-        }
-    }
-    if !settings.feishu_webhook.trim().is_empty() {
-        let http = app
-            .try_state::<AppState>()
-            .map(|s| s.http.clone())
-            .unwrap_or_default();
-        // 飞书与 Bark 同样的构造规则：地址随时可改、支持分号分隔多个、
-        // 共享连接池，渠道各自报错。
-        for feishu in Feishu::from_list(&settings.feishu_webhook, http) {
-            channels.push(feishu);
-        }
+    // 地址随时可改，每次现构造。每个地址一条渠道，并发推送、各自报错。
+    for apprise in Apprise::from_list(&settings.push_urls()) {
+        channels.push(apprise);
     }
     if channels.is_empty() {
         return Ok(());
@@ -365,7 +346,7 @@ fn emit_system_notification(app: &AppHandle, n: &Notification) {
         .body(&n.body)
         .show()
     {
-        let _ = app.emit(NOTICE_CHANNEL, format!("系统通知发送失败：{err}"));
+        let _ = app.emit(NOTICE_CHANNEL, format!("系統通知發送失敗：{err}"));
     }
 }
 
@@ -378,7 +359,7 @@ async fn pump_events(app: AppHandle, mut events: tokio::sync::mpsc::Receiver<Eve
         let app = notification_app.clone();
         async move {
             if let Err(err) = dispatch_notification(&app, notification).await {
-                let _ = app.emit(NOTICE_CHANNEL, format!("发送提醒时出错：{err}"));
+                let _ = app.emit(NOTICE_CHANNEL, format!("發送提醒時出錯：{err}"));
             }
         }
     }));
@@ -395,7 +376,7 @@ async fn pump_events(app: AppHandle, mut events: tokio::sync::mpsc::Receiver<Eve
         if let Event::InStock { state } = &event {
             let target = &state.target;
             let notification = Notification::new(
-                "有货了",
+                "有貨了",
                 format!("{} {}", target.store_title, target.product_name),
             );
             let notification = match region_by_locale(&target.locale) {
@@ -414,13 +395,13 @@ async fn pump_events(app: AppHandle, mut events: tokio::sync::mpsc::Receiver<Eve
                     app.opener().open_url(url, None::<&str>)
                 })
             {
-                let _ = app.emit(NOTICE_CHANNEL, format!("打开购物袋失败：{err}"));
+                let _ = app.emit(NOTICE_CHANNEL, format!("開啟購物袋失敗：{err}"));
             }
 
             // 不逐项等待网络推送，否则15个Bark超时会让快照和暂停状态迟到150秒。
             // 队列满时保留背压，不丢提醒，也不无限创建后台任务。
             if notifications.send(notification).await.is_err() {
-                let _ = app.emit(NOTICE_CHANNEL, "提醒发送任务已停止，无法发送到货提醒");
+                let _ = app.emit(NOTICE_CHANNEL, "提醒傳送工作已停止，無法發送到貨提醒");
             }
         }
     }
@@ -431,14 +412,14 @@ async fn pump_events(app: AppHandle, mut events: tokio::sync::mpsc::Receiver<Eve
 /// 关窗口时不退出而是收进托盘：这个工具的正常用法就是挂上几个小时等发售，
 /// 让它一直占着一个窗口和 Dock 图标没有道理。
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "顯示視窗", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "結束", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     TrayIconBuilder::with_id("main")
         .icon(
             app.default_window_icon().cloned().ok_or_else(|| {
-                tauri::Error::AssetNotFound("默认窗口图标缺失，无法建立托盘".into())
+                tauri::Error::AssetNotFound("預設視窗圖示缺失，無法建立系統匣".into())
             })?,
         )
         .tooltip("Apple Pickup Watcher")
@@ -478,56 +459,9 @@ fn reveal_window(app: &AppHandle) {
 /// 时的几次控件赋值就会把仅存的那份原子替换成一份空的默认配置，监控列表再也
 /// 找不回来。Go 版正是这么丢过数据。
 fn load_settings(notices: &mut Vec<String>) -> (Settings, Option<SettingsStore>) {
-    let store = match SettingsStore::new() {
-        Ok(s) => s,
-        Err(err) => {
-            notices.push(format!("配置目录不可用，本次运行的设置不会被保存：{err}"));
-            return (Settings::default(), None);
-        }
-    };
-
-    // 「新版配置文件还不存在」才是首次运行的判据。
-    //
-    // 不能用「目标列表为空」代替：用户删光目标后保存的是一份合法的空目标配置，
-    // 而旧版 settings.json 是刻意保留不删的（为了能回退），于是下次启动会把他
-    // 亲手删掉的目标连同 locale、Bark 地址一起原样倒回来。
-    let first_run = store.path().symlink_metadata().is_err();
-
-    match store.load() {
-        Ok(settings) => {
-            if first_run
-                && let Some(legacy) = store.import_legacy()
-                && !legacy.targets.is_empty()
-            {
-                notices.push(format!(
-                    "已从旧版设置迁移了 {} 条监控目标。",
-                    legacy.targets.len()
-                ));
-                // 立刻落盘。否则用户不改任何设置时新版文件一直不存在，
-                // 每次启动都要重迁一遍，用户删掉的目标也会一直复活。
-                if let Err(err) = store.save(&legacy) {
-                    notices.push(format!("迁移结果暂时没能保存：{err}"));
-                }
-                return (legacy, Some(store));
-            }
-            (settings, Some(store))
-        }
-        Err(err) => {
-            match store.preserve_corrupted() {
-                Ok(Some(path)) => {
-                    notices.push(format!("读取设置失败，原文件已备份到 {}", path.display()))
-                }
-                Ok(None) => {}
-                Err(backup_err) => {
-                    notices.push(format!("读取设置失败，且无法备份原文件：{backup_err}"));
-                }
-            }
-            notices.push(format!(
-                "读取设置失败，已回退到默认设置，并且本次运行不会覆盖磁盘上的配置：{err}"
-            ));
-            (Settings::default(), None)
-        }
-    }
+    let launch = apw_core::config::load_launch_settings();
+    notices.extend(launch.notices);
+    (launch.settings, launch.store)
 }
 
 pub fn run() {
@@ -549,7 +483,7 @@ pub fn run() {
                 proxies: settings.proxies.clone(),
                 ..ClientConfig::default()
             })
-            .map_err(|e| format!("构造 Apple 客户端失败：{e}"))?;
+            .map_err(|e| format!("建立 Apple 用戶端失敗：{e}"))?;
 
             // 用 Watcher::new 而不是 Watcher::spawn：setup 回调跑在主线程上，
             // 并不处在 tokio 运行时上下文里，在这里 tokio::spawn 会 panic，
@@ -582,7 +516,7 @@ pub fn run() {
 
             if let Err(err) = setup_tray(&handle) {
                 // 托盘建不起来只是少一项能力，不该让程序起不来。
-                notices.push(format!("系统托盘不可用：{err}"));
+                notices.push(format!("系統匣無法使用：{err}"));
             }
 
             if !notices.is_empty() {

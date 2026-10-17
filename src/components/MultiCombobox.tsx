@@ -29,7 +29,7 @@ export function MultiCombobox({
   placeholder,
   searchPlaceholder,
   emptyText,
-  countLabel = (n) => `已选 ${n} 项`,
+  countLabel = (n) => `已選 ${n} 項`,
   disabled,
   className,
 }: {
@@ -116,7 +116,7 @@ export function MultiCombobox({
                 onClick={() => onChange(options.map((o) => o.value))}
                 disabled={options.length === 0 || selected.length === options.length}
               >
-                全选
+                全選
               </Button>
               <Button
                 type="button"

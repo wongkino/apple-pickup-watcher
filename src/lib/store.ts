@@ -10,8 +10,7 @@
  * 设计的，而我们的数据源正是 Rust。再套一层状态库只会制造「再存一份」的诱惑。
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke, isWeb, listen, playAlert, prepareAlert } from "./backend";
 
 import type {
   Category,
@@ -68,9 +67,10 @@ export interface UiState {
 const DEFAULT_SETTINGS: Settings = {
   locale: "zh_CN",
   targets: [],
-  intervalSeconds: 30,
+  intervalSeconds: 120,
   barkUrl: "",
   feishuWebhook: "",
+  appriseUrls: "",
   soundEnabled: true,
   openBagOnHit: true,
   proxies: [],
@@ -136,14 +136,22 @@ function applyEvent(event: WatcherEvent): void {
       const { availability, target } = event.state;
       if (isUntrusted(availability)) {
         const { detail } = describeAvailability(availability);
-        pushLog(`${target.storeTitle} ${target.productName}：${detail ?? "查询失败"}`);
+        pushLog(`${target.storeTitle} ${target.productName}：${detail ?? "查詢失敗"}`);
       }
       break;
     }
 
-    case "inStock":
-      pushLog(`有货！${event.state.target.storeTitle} ${event.state.target.productName}`);
+    case "inStock": {
+      const { storeTitle, productName } = event.state.target;
+      pushLog(`有貨！${storeTitle} ${productName}`);
+      if (isWeb()) {
+        if (state.settings.soundEnabled) playAlert();
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("有貨了", { body: `${storeTitle} ${productName}` });
+        }
+      }
       break;
+    }
 
     case "cycleComplete": {
       const recovered = event.healthy && state.trouble !== null;
@@ -155,11 +163,11 @@ function applyEvent(event: WatcherEvent): void {
         trouble: event.healthy ? null : state.trouble,
         pacing: { nextCheckInSecs: event.nextCheckInSecs, paced: event.paced },
       });
-      if (recovered) pushLog("查询已恢复正常。");
+      if (recovered) pushLog("查詢已恢復正常。");
       // 只在开始被拉长的那一轮记一条，之后每轮都写会把日志刷满。
       if (event.paced && !pacedBefore) {
         pushLog(
-          `Apple 限制每个网络的查询频率，本轮起按请求预算放慢：下一轮 ${event.nextCheckInSecs} 秒后。`,
+          `Apple 限制每個網路的查詢頻率，本輪起按請求預算放慢：下一輪 ${event.nextCheckInSecs} 秒後。`,
         );
       }
       break;
@@ -172,7 +180,7 @@ function applyEvent(event: WatcherEvent): void {
 
     case "runStateChanged":
       update({ running: event.running, pacing: event.running ? state.pacing : null });
-      pushLog(event.running ? "已开始监控。" : "已暂停监控。");
+      pushLog(event.running ? "已開始監控。" : "已暫停監控。");
       break;
 
     default:
@@ -180,7 +188,7 @@ function applyEvent(event: WatcherEvent): void {
   }
 }
 
-let unlisteners: UnlistenFn[] = [];
+let unlisteners: Array<() => void> = [];
 let starting: Promise<void> | null = null;
 
 /**
@@ -193,11 +201,20 @@ let starting: Promise<void> | null = null;
 export function connect(): Promise<void> {
   if (starting) return starting;
   starting = (async () => {
-    unlisteners = await Promise.all([
+    const listeners = [
       listen<WatcherEvent>(EVENT_CHANNEL, (e) => applyEvent(e.payload)),
       // 这条通道不只在启动时用：发提醒失败、打开购物袋失败也走这里，前缀不能写死成「启动」。
       listen<string>(NOTICE_CHANNEL, (e) => pushLog(`提示：${e.payload}`)),
-    ]);
+    ];
+    if (isWeb()) {
+      listeners.push(
+        listen<string>("watcher://open-bag", (e) => {
+          const opened = window.open(e.payload, "_blank", "noopener");
+          if (!opened) pushLog(`提示：瀏覽器攔截了購物袋頁面，請允許彈出視窗：${e.payload}`);
+        }),
+      );
+    }
+    unlisteners = await Promise.all(listeners);
 
     const [regions, categories, settings, rows, running] = await Promise.all([
       invoke<Region[]>("list_regions"),
@@ -243,7 +260,7 @@ export async function loadCatalog(locale: string): Promise<void> {
     if (!isCurrent()) return;
     // 目录读不出来不该让整个界面挂掉，但必须让用户知道下拉为什么是空的。
     update({ stores: [], products: [] });
-    pushLog(`载入 ${locale} 的门店与型号失败：${String(err)}`);
+    pushLog(`載入 ${locale} 的門市與型號失敗：${String(err)}`);
   }
 }
 
@@ -259,22 +276,21 @@ export async function saveSettings(next: Settings): Promise<void> {
       update({ settings: saved });
     }
   } catch (err) {
-    pushLog(`保存设置失败：${String(err)}`);
+    pushLog(`儲存設定失敗：${String(err)}`);
   }
 }
 
 /**
  * 用界面上的推送地址列表整体替换现有的。
  *
- * 每个地址是 Bark 还是飞书由后端按地址长相判断并分栏存好，这里原样交过去，
- * 拿回存好的设置；界面上的渠道标签就按存回来的位置显示。
+ * 地址按 Apprise 的写法原样交给后端，拿回存好的设置。
  */
 export async function setPushUrls(urls: string[]): Promise<void> {
   try {
     const saved = await invoke<Settings>("set_push_urls", { urls });
     update({ settings: saved });
   } catch (err) {
-    pushLog(`保存推送地址失败：${String(err)}`);
+    pushLog(`儲存推送位址失敗：${String(err)}`);
   }
 }
 
@@ -291,11 +307,17 @@ export async function setTargets(targets: Target[]): Promise<void> {
     const rows = await invoke<TargetState[]>("set_targets", { targets });
     update({ rows, settings: { ...state.settings, targets } });
   } catch (err) {
-    pushLog(`更新监控列表失败：${String(err)}`);
+    pushLog(`更新監控清單失敗：${String(err)}`);
   }
 }
 
 export async function startWatching(): Promise<void> {
+  if (isWeb()) {
+    prepareAlert();
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+  }
   await invoke("start_watching");
 }
 
@@ -308,7 +330,7 @@ export async function setIntervalSeconds(seconds: number): Promise<void> {
     const applied = await invoke<number>("set_interval", { seconds });
     update({ settings: { ...state.settings, intervalSeconds: applied } });
   } catch (err) {
-    pushLog(`设置查询间隔失败：${String(err)}`);
+    pushLog(`設定查詢間隔失敗：${String(err)}`);
   }
 }
 
@@ -327,12 +349,12 @@ export async function refreshProducts(): Promise<void> {
     const count = await invoke<number>("refresh_products", { locale, category });
     // 说「抓到」而不是「更新」：这个数字是本轮成功抓下来的不同零件号数，
     // 不等于目录里真的多了或改了多少行。
-    pushLog(`已从 Apple 官网抓到 ${count} 个型号。`);
+    pushLog(`已從 Apple 官網取得 ${count} 個型號。`);
   } catch (err) {
     // 抓取失败仍可继续用内嵌目录，但失败页面对应的旧型号可能已经停售。
     // 必须把这一层风险写出来；只说「仍可使用」会让旧快照显得像可信的当前目录。
     pushLog(
-      `更新型号列表失败（失败页面继续使用内置旧目录，其中的型号可能已过期）：${String(err)}`,
+      `更新型號清單失敗（失敗的頁面繼續使用內建舊目錄，其中的型號可能已過期）：${String(err)}`,
     );
   } finally {
     // 无论成败都重载一次目录。**失败时也必须重载**：后端是一页一页安装的，
@@ -348,9 +370,9 @@ export async function refreshProducts(): Promise<void> {
 export async function testNotify(): Promise<void> {
   try {
     await invoke("test_notify");
-    pushLog("已发出测试提醒。");
+    pushLog("已送出測試提醒。");
   } catch (err) {
-    pushLog(`测试提醒失败：${String(err)}`);
+    pushLog(`測試提醒失敗：${String(err)}`);
   }
 }
 
@@ -361,12 +383,12 @@ export async function checkForUpdate(opts?: { quiet?: boolean }): Promise<void> 
     const info = await invoke<UpdateInfo | null>("check_for_update");
     update({ update: info });
     if (!opts?.quiet) {
-      pushLog(info ? `发现新版本 ${info.version}。` : "已经是最新版本。");
+      pushLog(info ? `發現新版本 ${info.version}。` : "已經是最新版本。");
     }
   } catch (err) {
     // 检查更新失败不是故障，只是这次没查到。静默模式下连日志都不写，
     // 免得每次断网启动都刷一条无用信息。
-    if (!opts?.quiet) pushLog(`检查更新失败：${String(err)}`);
+    if (!opts?.quiet) pushLog(`檢查更新失敗：${String(err)}`);
   }
 }
 
@@ -381,9 +403,9 @@ export async function installUpdate(): Promise<void> {
   update({ installing: true });
   try {
     await invoke("install_update");
-    pushLog("更新已安装，重启应用后生效。");
+    pushLog("更新已安裝，重新啟動後生效。");
   } catch (err) {
-    pushLog(`安装更新失败：${String(err)}`);
+    pushLog(`安裝更新失敗：${String(err)}`);
   } finally {
     update({ installing: false });
   }

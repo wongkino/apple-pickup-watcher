@@ -22,6 +22,12 @@ cargo install --path crates/apw-cli --locked
 
 预编译包解压后可直接运行其中的 `apw` / `apw.exe`，也可把它放到 PATH 中。包名带版本和 Rust target triple；Linux GNU 包在 Ubuntu 24.04 构建，运行环境需要兼容的 glibc。选择与操作系统及架构匹配的包。
 
+### Docker
+
+桌面版依赖系统托盘，不能放进容器。`docker compose up -d --build` 启动网页版，浏览器打开 <http://localhost:8080>，界面与桌面版同一套。提示音和到货通知由浏览器播放、弹出；Apprise 推送由服务端发送，镜像里已带 `apprise` 命令。购物袋在有货时由浏览器打开新标签，弹窗被拦时日志里会留下地址。
+
+设置写在容器里的 `settings.v2.json`，Compose 用命名卷 `apw-config` 保住它，不会改写宿主机上的桌面版配置。容器与桌面版共用同一个出口 IP 的请求额度，不要两边同时盯同一批门店。停止：`docker compose down`。
+
 ## 安装 skill
 
 配套 skill 可直接从本仓库安装，无需把项目另行发布到 npm。安装 Node.js LTS 后，使用 [Skills CLI](https://github.com/vercel-labs/skills)：
@@ -131,7 +137,7 @@ apw watch --targets targets.json --until-in-stock --timeout 300
 | `trouble` | `reason` 与可选 `advice`，说明监控故障 |
 | `runStateChanged` | `running`，说明引擎启停 |
 
-`--until-in-stock` 在任一目标到货时退出 0。默认监控 300 秒；期限届满退出 4，即使此前有健康查询，也不代表等待条件已满足。期间的库存行只是各自时间点的观察结果。默认间隔 30 秒、最低 5 秒，抖动和失败退避仍生效；请求预算不够时实际间隔会更长（见下文「请求预算与合并查询」）。限速、预算和去重都属于单个进程；避免启动多个重复的 watcher，也不要用循环里的 `check` 代替 `watch`——每次 `check` 都是一个新进程、两次请求，预算记不住。
+`--until-in-stock` 在任一目标到货时退出 0。默认监控 300 秒；期限届满退出 4，即使此前有健康查询，也不代表等待条件已满足。期间的库存行只是各自时间点的观察结果。默认间隔 120 秒、最低 5 秒，抖动和失败退避仍生效；请求预算不够时实际间隔会更长（见下文「请求预算与合并查询」）。限速、预算和去重都属于单个进程；避免启动多个重复的 watcher，也不要用循环里的 `check` 代替 `watch`——每次 `check` 都是一个新进程、两次请求，预算记不住。
 
 明确需要长期运行时可用 `--timeout 0`，由终端或进程管理器保持进程。Ctrl-C / SIGTERM 会取消在途查询。消费者关闭输出管道时退出 141。命令退出后监控结束；CLI 本身不弹窗、播放声音、发推送、打开网页或购买商品，agent 可根据用户请求处理 `inStock` 事件。
 

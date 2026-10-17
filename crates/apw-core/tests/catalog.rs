@@ -537,7 +537,7 @@ fn 只有更长标识符时明确报错() {
     let html = page(&format!("legacy_productSelectionData: {SELECTION}"));
     match apple_catalog::parse_buy_page(html.as_bytes(), Category::Iphone, "iphone-17") {
         Err(CatalogError::PageSchema { detail }) => {
-            assert!(detail.contains("更长标识符"), "错误说明太含糊：{detail}");
+            assert!(detail.contains("更長識別碼"), "错误说明太含糊：{detail}");
         }
         other => panic!("应当报结构不符，实际是 {other:?}"),
     }

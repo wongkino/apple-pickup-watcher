@@ -1,6 +1,6 @@
 //! 到货提醒的发送渠道。
 //!
-//! 这里只做「把一条通知送出去」这一件事：[`Bark`] 远程推送、[`Sound`] 本地
+//! 这里只做「把一条通知送出去」这一件事：[`Apprise`] 远程推送、[`Sound`] 本地
 //! 提示音，以及把若干渠道并发组合起来的 [`Multi`]。
 //!
 //! 刻意**不**包含系统桌面通知：那需要界面框架的句柄，放进来会让整个 crate
@@ -15,13 +15,15 @@
 //!
 //! # 未配置不是错误
 //!
-//! 用户没填 Bark 地址、这份构建里没有内嵌音频，都属于「这个渠道没开」，
+//! 用户没填 Apprise 地址、这份构建里没有内嵌音频，都属于「这个渠道没开」，
 //! `notify` 直接返回 `Ok(())`。只有「开了但没成功」才是错误 —— 否则界面上
 //! 会一直挂着一条用户根本没打算开的功能的报错。
 
+use std::ffi::{OsStr, OsString};
 use std::future::Future;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::pin::Pin;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::task::Poll;
@@ -96,7 +98,7 @@ pub enum NotifyError {
     Config { channel: String, detail: String },
 
     /// 网络层面的失败：连不上、超时、TLS 出错等。
-    #[error("{channel}：请求失败：{detail}")]
+    #[error("{channel}：請求失敗：{detail}")]
     Transport { channel: String, detail: String },
 
     /// 服务器用状态码明确拒绝了这次推送。
@@ -155,6 +157,237 @@ fn join_errors(errors: &[NotifyError]) -> String {
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join("；")
+}
+
+// ---------------------------------------------------------------------------
+// Apprise
+// ---------------------------------------------------------------------------
+
+const APPRISE: &str = "Apprise";
+
+/// 一次 `apprise` 命令的上限。多个地址各起一次，互不等待。
+const APPRISE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// 通过本机的 [Apprise](https://github.com/caronc/apprise) 命令发送一条通知。
+///
+/// 地址原样交给 `apprise`，本程序不解释 `bark://`、`feishu://`、`discord://`
+/// 这些渠道。命令失败只变成 [`NotifyError`]，不改库存。
+#[derive(Debug, Clone)]
+pub struct Apprise {
+    url: String,
+    name: String,
+    program: OsString,
+}
+
+impl Apprise {
+    pub fn new(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into().trim().to_string(),
+            name: APPRISE.to_string(),
+            program: OsString::from("apprise"),
+        }
+    }
+
+    /// 一个地址一条渠道。只有一个时渠道名是「Apprise」，多个时带序号。
+    pub fn from_list(urls: &[String]) -> Vec<Self> {
+        let urls: Vec<String> = urls
+            .iter()
+            .map(|url| url.trim().to_string())
+            .filter(|url| !url.is_empty())
+            .collect();
+        let many = urls.len() > 1;
+        urls.into_iter()
+            .enumerate()
+            .map(|(i, url)| {
+                let mut channel = Self::new(url);
+                if many {
+                    channel.name = format!("{APPRISE} #{}", i + 1);
+                }
+                channel
+            })
+            .collect()
+    }
+
+    /// 测试里换成假的可执行文件。平时就是 `apprise`。
+    pub fn with_program(mut self, program: impl Into<OsString>) -> Self {
+        self.program = program.into();
+        self
+    }
+}
+
+impl Notifier for Apprise {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    async fn notify(&self, n: &Notification) -> Result<(), NotifyError> {
+        if self.url.is_empty() {
+            return Ok(());
+        }
+        let program = self.program.clone();
+        let url = self.url.clone();
+        let name = self.name.clone();
+        let title = n.title.clone();
+        let body = apprise_body(n);
+        let joined = tokio::task::spawn_blocking(move || {
+            run_apprise(&program, &url, &title, &body, APPRISE_TIMEOUT)
+        })
+        .await;
+        match joined {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(detail)) => Err(apprise_failure(&name, detail)),
+            Err(_) => Err(NotifyError::Transport {
+                channel: name,
+                detail: "傳送工作中斷".to_string(),
+            }),
+        }
+    }
+}
+
+fn apprise_body(n: &Notification) -> String {
+    match &n.url {
+        Some(link) if !link.is_empty() && !n.body.contains(link) => {
+            if n.body.is_empty() {
+                link.clone()
+            } else {
+                format!("{}\n{link}", n.body)
+            }
+        }
+        _ => n.body.clone(),
+    }
+}
+
+fn apprise_failure(channel: &str, detail: String) -> NotifyError {
+    if detail.contains("未找到") {
+        NotifyError::Config {
+            channel: channel.to_string(),
+            detail,
+        }
+    } else {
+        NotifyError::Transport {
+            channel: channel.to_string(),
+            detail,
+        }
+    }
+}
+
+/// 出错时只露出协议和看起来像主机名的那一段，地址里的密钥不进日志。
+fn display_apprise_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return truncate_apprise_label(url.trim());
+    };
+    let host = rest.split(['/', '?', '@']).next().unwrap_or("");
+    let looks_like_host = host.contains('.')
+        || host.eq_ignore_ascii_case("localhost")
+        || host.parse::<std::net::IpAddr>().is_ok();
+    if looks_like_host && !host.is_empty() {
+        format!("{scheme}://{host}/…")
+    } else {
+        format!("{scheme}://…")
+    }
+}
+
+fn truncate_apprise_label(text: &str) -> String {
+    const MAX: usize = 40;
+    if text.chars().count() <= MAX {
+        return text.to_string();
+    }
+    let mut short: String = text.chars().take(MAX).collect();
+    short.push('…');
+    short
+}
+
+fn drain_pipe(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_string(&mut buf);
+        }
+        buf
+    })
+}
+
+fn scrub_apprise_output(text: &str, secret: &str) -> String {
+    let cleaned = if secret.is_empty() {
+        text.to_string()
+    } else {
+        text.replace(secret, "…")
+    };
+    let mut one_line = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    const MAX: usize = 180;
+    if one_line.chars().count() > MAX {
+        one_line = one_line.chars().take(MAX).collect();
+        one_line.push('…');
+    }
+    one_line
+}
+
+fn run_apprise(
+    program: &OsStr,
+    url: &str,
+    title: &str,
+    body: &str,
+    timeout: Duration,
+) -> Result<(), String> {
+    let program_name = program.to_string_lossy();
+    let mut child = Command::new(program)
+        .arg("--title")
+        .arg(title)
+        .arg("--body")
+        .arg(body)
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                format!(
+                    "找不到 {program_name} 指令。請先安裝 Apprise（https://github.com/caronc/apprise）"
+                )
+            } else {
+                format!("無法啟動 {program_name}：{err}")
+            }
+        })?;
+    // 边等边读，避免输出把管道撑满之后命令再也结束不了。
+    let stdout = drain_pipe(child.stdout.take());
+    let stderr = drain_pipe(child.stderr.take());
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout.join();
+                let _ = stderr.join();
+                return Err(format!("{} 逾時", display_apprise_url(url)));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(err) => {
+                let _ = child.kill();
+                let _ = stdout.join();
+                let _ = stderr.join();
+                return Err(err.to_string());
+            }
+        }
+    };
+    let output = format!(
+        "{} {}",
+        stdout.join().unwrap_or_default(),
+        stderr.join().unwrap_or_default()
+    );
+    if status.success() {
+        return Ok(());
+    }
+    let code = status.code().unwrap_or(-1);
+    let detail = scrub_apprise_output(&output, url);
+    let shown = display_apprise_url(url);
+    if detail.is_empty() {
+        Err(format!("{shown} 結束代碼 {code}"))
+    } else {
+        Err(format!("{shown} 結束代碼 {code}：{detail}"))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -520,8 +753,8 @@ const FEISHU_TIMEOUT: Duration = Duration::from_secs(10);
 /// 在群设置 → 群机器人 → 添加自定义机器人后获得。安卓 / iOS / 桌面端的飞书
 /// App 都能收到推送，是 Bark 之外接收端最广的渠道。
 ///
-/// 安全校验推荐用飞书的**关键词模式**：创建机器人时把关键词设成「有货」，
-/// 到货提醒的标题「有货了」天然含关键词，无需任何额外签名逻辑。签名校验模式
+/// 安全校验推荐用飞书的**关键词模式**：创建机器人时把关键词设成「有貨」，
+/// 到货提醒的标题「有貨了」天然含关键词，无需任何额外签名逻辑。签名校验模式
 /// 不支持：那种机器人会回 19021，用户应改用关键词模式。
 #[derive(Debug, Clone)]
 pub struct Feishu {

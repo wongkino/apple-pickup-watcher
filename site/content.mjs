@@ -13,11 +13,11 @@ export const locales = [
     "switchLabel": "English",
     "switchPath": "en/",
     "title": "Apple Pickup Watcher — 苹果直营店库存监控与到货提醒",
-    "description": "免费开源的 Apple 到店取货库存监控工具，支持 iPhone、iPad、Mac、Apple Watch 和七个地区。适用于 macOS、Windows、Linux，提供系统通知、提示音与 Bark 推送，明确区分无货与查询失败。",
+    "description": "免费开源的 Apple 到店取货库存监控工具，支持 iPhone、iPad、Mac、Apple Watch 和七个地区。适用于 macOS、Windows、Linux，提供系统通知、提示音与 Apprise 推送，明确区分无货与查询失败。",
     "skip": "跳到正文",
     "source": "查看源代码",
     "download": "下载最新版本",
-    "intro": "选择你想买的型号和取货门店，程序会定期查询库存，有货时通过系统通知、提示音或 Bark 提醒你。免费开源，支持 macOS、Windows 和 Linux。",
+    "intro": "选择你想买的型号和取货门店，程序会定期查询库存，有货时通过系统通知、提示音或 Apprise 提醒你。免费开源，支持 macOS、Windows 和 Linux。",
     "features": [
       [
         "后台运行",
@@ -29,7 +29,7 @@ export const locales = [
       ],
       [
         "到货提醒",
-        "支持系统通知、提示音和可选的 Bark 推送。持续有货不会每轮重复提醒；离开有货状态后再次有货，会重新提醒。"
+        "支持系统通知、提示音和可选的 Apprise 推送。持续有货不会每轮重复提醒；离开有货状态后再次有货，会重新提醒。"
       ],
       [
         "CLI 与 agent skill",
@@ -52,7 +52,7 @@ export const locales = [
       ],
       [
         "检查通知设置并开始。",
-        "用“测试提醒”确认声音与推送有效。默认每 30 秒查询一次。"
+        "用“测试提醒”确认声音与推送有效。默认每 120 秒查询一次。"
       ],
       [
         "收到提醒后去官网购买。",
@@ -93,7 +93,7 @@ export const locales = [
       ],
       [
         "如何在手机上接收到货提醒？",
-        "在 iPhone 上安装 Bark，将自己的 Bark 推送地址填入应用设置，再点击“测试提醒”。Bark 为可选通知渠道，推送失败不会改变库存状态。"
+        "在「推送地址」填入 Apprise 地址（如 barks://、feishu://），再点击“测试提醒”。推送失败不会改变库存状态。"
       ],
       [
         "这是 Apple 官方软件吗？",
@@ -127,11 +127,11 @@ export const locales = [
     "switchLabel": "简体中文",
     "switchPath": "",
     "title": "Apple Pickup Watcher — Apple Store Stock & Restock Alerts",
-    "description": "Free, open-source Apple Store pickup stock monitor for iPhone, iPad, Mac and Apple Watch in seven regions. Get desktop and optional Bark restock alerts on macOS, Windows and Linux, with clear query failure states.",
+    "description": "Free, open-source Apple Store pickup stock monitor for iPhone, iPad, Mac and Apple Watch in seven regions. Get desktop and optional Apprise restock alerts on macOS, Windows and Linux, with clear query failure states.",
     "skip": "Skip to content",
     "source": "Source code",
     "download": "Download latest release",
-    "intro": "Choose a model and a pickup store. The app checks availability periodically and alerts you through desktop notifications, sound or Bark when it finds stock. Free and open source for macOS, Windows and Linux.",
+    "intro": "Choose a model and a pickup store. The app checks availability periodically and alerts you through desktop notifications, sound or Apprise when it finds stock. Free and open source for macOS, Windows and Linux.",
     "features": [
       [
         "Background monitoring",
@@ -143,7 +143,7 @@ export const locales = [
       ],
       [
         "Notifications",
-        "Desktop notifications, sound and optional Bark push are supported. Continuous availability does not trigger an alert every cycle. A target that leaves and re-enters the available state triggers a new alert."
+        "Desktop notifications, sound and optional Apprise push are supported. Continuous availability does not trigger an alert every cycle. A target that leaves and re-enters the available state triggers a new alert."
       ],
       [
         "CLI and agent skill",
@@ -166,7 +166,7 @@ export const locales = [
       ],
       [
         "Test notifications and start.",
-        "Use the test notification control to check sound and push settings. The default polling interval is 30 seconds."
+        "Use the test notification control to check sound and push settings. The default polling interval is 120 seconds."
       ],
       [
         "Buy on Apple’s website.",
@@ -207,7 +207,7 @@ export const locales = [
       ],
       [
         "Can I receive restock alerts on my phone?",
-        "Yes, with the optional Bark notification channel. Install Bark on your iPhone, enter your own Bark push URL in the app settings, then send a test notification. A failed push does not change the stock status."
+        "Yes. Enter an Apprise URL such as barks:// or feishu:// in the push-address list, then send a test notification. A failed push does not change the stock status."
       ],
       [
         "Is this an official Apple application?",

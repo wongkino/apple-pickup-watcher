@@ -20,6 +20,7 @@
 
 pub mod apple;
 pub mod apple_catalog;
+pub mod bag;
 pub mod catalog;
 pub mod config;
 pub mod model;
